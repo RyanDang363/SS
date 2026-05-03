@@ -1,0 +1,8 @@
+"""RAGGERS — toy video RAG demo.
+
+Stage 0-lite: shared data contracts and IO utilities.
+"""
+
+from video_rag.schemas import MediaMetadata, VideoManifest
+
+__all__ = ["MediaMetadata", "VideoManifest"]
