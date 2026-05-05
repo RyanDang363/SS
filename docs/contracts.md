@@ -142,6 +142,44 @@ python -m video_rag.index.register_video \
 This stage does not inspect codecs, duration, FPS, or audio. Media probing
 happens in Stage 2.
 
+## Stage 2: Media Probe
+
+Module: [`video_rag/index/probe_media.py`](../video_rag/index/probe_media.py).
+
+Input:
+
+- `data/manifests/{video_id}/video_manifest.json`
+
+Output:
+
+- `data/manifests/{video_id}/media_metadata.json`
+
+This stage reads `VideoManifest.source_path` and resolves manifest source paths
+as repo-root-relative values. It uses `ffprobe` to inspect duration, FPS,
+resolution, and audio presence, then writes validated `MediaMetadata`. It does
+not modify `video_manifest.json`, extract audio, or perform later indexing
+steps.
+
+## Stage 3: Audio Extraction
+
+Module: [`video_rag/index/extract_audio.py`](../video_rag/index/extract_audio.py).
+
+Inputs:
+
+- `data/manifests/{video_id}/video_manifest.json`
+- `data/manifests/{video_id}/media_metadata.json`
+
+Output:
+
+- `data/audio/{video_id}.wav`
+
+This stage requires `has_audio=true` in `media_metadata.json`. It extracts mono
+16 kHz WAV audio for transcription, but does not transcribe; transcription
+happens in Stage 4. It does not modify Stage 1 or Stage 2 artifacts. Manifest
+source paths are repo-root-relative, so `source_path` values such as
+`data/videos/lecture_001.mp4` are resolved from the repository root/current
+working directory, not from the manifest folder.
+
 ## Stage 4: Transcription
 
 **Implemented.** Module: [`video_rag/index/transcribe_audio.py`](../video_rag/index/transcribe_audio.py).
