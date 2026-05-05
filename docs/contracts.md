@@ -89,6 +89,27 @@ alongside the manifest.
 
 Example: [`examples/media_metadata.example.json`](../examples/media_metadata.example.json).
 
+### `TranscriptSegment`
+
+One timestamped transcript segment for a video. Stored as JSONL — one
+record per line — under `data/transcripts/{video_id}.jsonl`.
+
+| Field        | Type    | Required | Notes                                                  |
+| ------------ | ------- | -------- | ------------------------------------------------------ |
+| `video_id`   | `str`   | yes      | Non-empty; joins to manifest.                          |
+| `start_time` | `float` | yes      | Seconds; `>= 0`.                                       |
+| `end_time`   | `float` | yes      | Seconds; `> start_time`.                               |
+| `text`       | `str`   | yes      | Non-empty after `strip()`.                             |
+
+File-level rules enforced by `python -m video_rag.validate`:
+
+- All records in a file share the same `video_id`.
+- Records are ordered by non-decreasing `start_time`. Small overlaps
+  between adjacent segments are permitted because real ASR output
+  often produces them.
+
+Example: [`examples/transcript_segment.example.jsonl`](../examples/transcript_segment.example.jsonl).
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -121,13 +142,57 @@ python -m video_rag.index.register_video \
 This stage does not inspect codecs, duration, FPS, or audio. Media probing
 happens in Stage 2.
 
+## Stage 4: Transcription
+
+**Implemented.** Module: [`video_rag/index/transcribe_audio.py`](../video_rag/index/transcribe_audio.py).
+
+Input:
+
+- audio file at `data/audio/{video_id}.wav` (produced by Stage 3)
+
+Output:
+
+- JSONL of `TranscriptSegment` records at
+  `data/transcripts/{video_id}.jsonl`
+
+Transcription is delegated to a provider adapter (see
+[`video_rag/index/transcription_providers.py`](../video_rag/index/transcription_providers.py)).
+The stage attaches `video_id` to each provider segment, sorts by
+`start_time` (stable), validates each record against the schema, and
+writes the result atomically (`*.jsonl.tmp` + `os.replace`).
+
+Built-in providers:
+
+- **`mock`** — deterministic, offline. **Tests and smoke checks only** —
+  do not run on real artifacts.
+- **`openai`** — real provider via OpenAI `whisper-1`. Lazy-imports
+  `openai` and reads `OPENAI_API_KEY` from the environment. Install
+  with `pip install -e .[transcribe]`.
+
+CLI:
+
+```bash
+python -m video_rag.index.transcribe_audio \
+  --video-id lecture_001 \
+  --provider openai \
+  [--language en] \
+  [--overwrite]
+```
+
+`--provider` is **required**: there is no default, so a mock transcript
+can never be produced by accident. A console-script alias
+`raggers-transcribe` is installed.
+
+Existing transcripts are preserved unless `--overwrite` is passed, and
+overwrite replaces only the single target file in `data/transcripts/` —
+sibling transcripts for other videos are never touched.
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- `TranscriptSegment` (range: `start_time`, `end_time`, `text`).
 - `FrameSample` (point: `timestamp`, `frame_path`).
 - `OCRRecord`, `CaptionRecord` keyed by `timestamp`.
 - `Chunk`, `Embedding`, retrieval results, answer payloads.
@@ -138,14 +203,15 @@ here.
 ## Folder layout
 
 The artifact folder layout is documented in [`../data/README.md`](../data/README.md).
-Stage 0-lite only writes to `data/manifests/` and `data/validation/`; other
-folders are placeholders.
+Currently implemented stages write to `data/videos/`, `data/manifests/`,
+`data/transcripts/`, and `data/validation/`; other folders are placeholders.
 
 ## Validating artifacts
 
 ```bash
 python -m video_rag.validate examples/video_manifest.example.json --type video_manifest
 python -m video_rag.validate examples/media_metadata.example.json --type media_metadata
+python -m video_rag.validate examples/transcript_segment.example.jsonl --type transcript_segments
 ```
 
 A console script `raggers-validate` is also installed as an alias.
