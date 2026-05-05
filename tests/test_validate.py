@@ -38,6 +38,20 @@ def test_cli_bad_media_metadata(capsys):
     assert "FAIL" in captured.out
 
 
+def test_cli_valid_frame_sample_jsonl(capsys):
+    rc = main([str(EXAMPLES / "frame_sample.example.jsonl"), "--type", "frame_sample"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert captured.out.startswith("OK")
+
+
+def test_cli_bad_frame_sample_jsonl(capsys):
+    rc = main([str(EXAMPLES / "bad_frame_sample.example.jsonl"), "--type", "frame_sample"])
+    captured = capsys.readouterr()
+    assert rc != 0
+    assert "FAIL" in captured.out
+
+
 def test_cli_missing_file(capsys, tmp_path: Path):
     missing = tmp_path / "nope.json"
     rc = main([str(missing), "--type", "video_manifest"])

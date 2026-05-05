@@ -18,6 +18,7 @@ dev = [
 
 [project.scripts]
 raggers-validate = "video_rag.validate:main"
+raggers-sample-frames = "video_rag.index.sample_frames:main"
 
 [tool.setuptools.packages.find]
 include = ["video_rag*"]

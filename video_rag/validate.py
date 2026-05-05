@@ -1,7 +1,11 @@
-"""Validation CLI for Stage 0-lite artifacts.
+"""Validation CLI for RAGGERS artifacts.
 
 Usage:
-    python -m video_rag.validate <path> --type <video_manifest|media_metadata>
+    python -m video_rag.validate <path> --type <video_manifest|media_metadata|frame_sample>
+
+JSON-typed artifacts validate the file as a single record. JSONL-typed
+artifacts validate every non-blank line and report the first failure with
+file path + line number.
 
 Exits 0 on success, non-zero on failure.
 """
@@ -15,13 +19,16 @@ from typing import Type
 
 from pydantic import BaseModel, ValidationError
 
-from video_rag.io_utils import read_json
-from video_rag.schemas import MediaMetadata, VideoManifest
+from video_rag.io_utils import read_json, read_jsonl
+from video_rag.schemas import FrameSample, MediaMetadata, VideoManifest
 
 SCHEMAS: dict[str, Type[BaseModel]] = {
     "video_manifest": VideoManifest,
     "media_metadata": MediaMetadata,
+    "frame_sample": FrameSample,
 }
+
+JSONL_TYPES: frozenset[str] = frozenset({"frame_sample"})
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -46,7 +53,11 @@ def validate_file(path: Path, artifact_type: str) -> tuple[bool, str]:
     if not path.exists():
         return False, f"FAIL  {path}: file not found"
     try:
-        read_json(path, model)
+        if artifact_type in JSONL_TYPES:
+            for _ in read_jsonl(path, model):
+                pass
+        else:
+            read_json(path, model)
     except ValidationError as e:
         return False, f"FAIL  {path} ({artifact_type}):\n{e}"
     except ValueError as e:

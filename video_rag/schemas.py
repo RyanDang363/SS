@@ -12,6 +12,8 @@ their own schemas alongside these as they are implemented.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -38,3 +40,25 @@ class MediaMetadata(BaseModel):
     fps: float | None = Field(default=None, gt=0)
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
+
+
+SamplingMethod = Literal["fixed_interval"]
+
+
+class FrameSample(BaseModel):
+    """A single sampled frame from a video.
+
+    One ``FrameSample`` per JPEG written by Stage 5. The collection of records
+    for a video is persisted as JSONL at
+    ``data/frames/{video_id}/frame_manifest.jsonl``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+    thumbnail_path: str | None = None
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    sampling_method: SamplingMethod = "fixed_interval"

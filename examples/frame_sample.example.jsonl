@@ -1,0 +1,3 @@
+{"video_id":"lecture_001","timestamp":0.0,"frame_path":"data/frames/lecture_001/frame_000000.jpg","thumbnail_path":null,"width":1920,"height":1080,"sampling_method":"fixed_interval"}
+{"video_id":"lecture_001","timestamp":5.0,"frame_path":"data/frames/lecture_001/frame_000005.jpg","thumbnail_path":null,"width":1920,"height":1080,"sampling_method":"fixed_interval"}
+{"video_id":"lecture_001","timestamp":10.0,"frame_path":"data/frames/lecture_001/frame_000010.jpg","thumbnail_path":null,"width":1920,"height":1080,"sampling_method":"fixed_interval"}
