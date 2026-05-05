@@ -1,0 +1,3 @@
+{"video_id": "lecture_001", "start_time": 0.0, "end_time": 4.2, "text": "Welcome to the lecture on Bayesian inference."}
+{"video_id": "lecture_001", "start_time": 4.2, "end_time": 9.8, "text": "Today we are going to introduce Bayes theorem."}
+{"video_id": "lecture_001", "start_time": 9.8, "end_time": 15.1, "text": "It tells us how to update beliefs given new evidence."}

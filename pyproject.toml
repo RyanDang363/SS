@@ -15,9 +15,13 @@ dependencies = [
 dev = [
     "pytest>=7",
 ]
+transcribe = [
+    "openai>=1.0",
+]
 
 [project.scripts]
 raggers-validate = "video_rag.validate:main"
+raggers-transcribe = "video_rag.index.transcribe_audio:main"
 
 [tool.setuptools.packages.find]
 include = ["video_rag*"]
