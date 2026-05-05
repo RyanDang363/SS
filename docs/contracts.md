@@ -121,6 +121,24 @@ python -m video_rag.index.register_video \
 This stage does not inspect codecs, duration, FPS, or audio. Media probing
 happens in Stage 2.
 
+## Stage 2: Media Probe
+
+Module: [`video_rag/index/probe_media.py`](../video_rag/index/probe_media.py).
+
+Input:
+
+- `data/manifests/{video_id}/video_manifest.json`
+
+Output:
+
+- `data/manifests/{video_id}/media_metadata.json`
+
+This stage reads `VideoManifest.source_path` and resolves manifest source paths
+as repo-root-relative values. It uses `ffprobe` to inspect duration, FPS,
+resolution, and audio presence, then writes validated `MediaMetadata`. It does
+not modify `video_manifest.json`, extract audio, or perform later indexing
+steps.
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
