@@ -12,9 +12,11 @@ stepping on each other:
 
 - A package layout (`video_rag/`) and an artifact folder layout (`data/`).
 - JSON / JSONL read/write helpers with Pydantic validation.
-- Two starter schemas:
+- Starter schemas:
   - `VideoManifest` — registers a source video.
   - `MediaMetadata` — probed media facts for that video.
+  - `FrameSample` — a sampled frame from a video.
+  - `OCRResult` — OCR text detected for a sampled frame.
 - A `python -m video_rag.validate` CLI for smoke-checking artifacts.
 
 > Naming note: the project / demo is **RAGGERS**. The Python package is
@@ -89,6 +91,28 @@ alongside the manifest.
 
 Example: [`examples/media_metadata.example.json`](../examples/media_metadata.example.json).
 
+### `FrameSample`
+
+A sampled frame from a source video. Records are written as JSONL by Stage 5.
+
+| Field        | Type    | Required | Notes                         |
+| ------------ | ------- | -------- | ----------------------------- |
+| `video_id`   | `str`   | yes      | Non-empty; joins to manifest. |
+| `timestamp`  | `float` | yes      | Seconds, must be >= 0.        |
+| `frame_path` | `str`   | yes      | Non-empty path to the frame.  |
+
+### `OCRResult`
+
+OCR text detected for a sampled frame. Records are written as JSONL by Stage 7.
+
+| Field        | Type      | Required | Notes                         |
+| ------------ | --------- | -------- | ----------------------------- |
+| `video_id`   | `str`     | yes      | Non-empty; joins to manifest. |
+| `timestamp`  | `float`   | yes      | Seconds, must be >= 0.        |
+| `frame_path` | `str`     | yes      | Non-empty path to the frame.  |
+| `ocr_text`   | `str`     | yes      | Empty string when no text.    |
+| `confidence` | `float?`  | no       | If present, 0 through 1.      |
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -121,6 +145,24 @@ python -m video_rag.index.register_video \
 This stage does not inspect codecs, duration, FPS, or audio. Media probing
 happens in Stage 2.
 
+## Stage 7: OCR Extraction
+
+Module: [`video_rag/index/run_ocr.py`](../video_rag/index/run_ocr.py).
+
+Input:
+
+- `data/frames/{video_id}/frame_manifest.jsonl`
+
+Output:
+
+- `data/ocr/{video_id}.jsonl`
+
+This stage reads sampled frame records from Stage 5, runs OCR on each
+referenced frame, and writes timestamped OCR results. If no text is found, it
+writes a valid OCR record with empty `ocr_text` and `confidence: null`. It does
+not generate VLM captions, chunk, embed, retrieve, answer questions, or modify
+frame manifests or video manifests.
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
@@ -128,8 +170,7 @@ module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
 - `TranscriptSegment` (range: `start_time`, `end_time`, `text`).
-- `FrameSample` (point: `timestamp`, `frame_path`).
-- `OCRRecord`, `CaptionRecord` keyed by `timestamp`.
+- `CaptionRecord` keyed by `timestamp`.
 - `Chunk`, `Embedding`, retrieval results, answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them

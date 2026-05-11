@@ -38,3 +38,25 @@ class MediaMetadata(BaseModel):
     fps: float | None = Field(default=None, gt=0)
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
+
+
+class FrameSample(BaseModel):
+    """A sampled frame from a source video."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+
+
+class OCRResult(BaseModel):
+    """OCR text detected for a sampled frame."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+    ocr_text: str
+    confidence: float | None = Field(default=None, ge=0, le=1)

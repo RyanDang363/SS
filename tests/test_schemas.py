@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from video_rag.schemas import MediaMetadata, VideoManifest
+from video_rag.schemas import FrameSample, MediaMetadata, OCRResult, VideoManifest
 
 
 # --- VideoManifest -----------------------------------------------------------
@@ -93,3 +93,66 @@ def test_media_metadata_nonpositive_width_fails(width):
 def test_media_metadata_nonpositive_height_fails(height):
     with pytest.raises(ValidationError):
         MediaMetadata(video_id="v", duration_seconds=1.0, has_audio=True, height=height)
+
+
+# --- FrameSample -------------------------------------------------------------
+
+
+def test_frame_sample_valid():
+    sample = FrameSample(
+        video_id="lecture_001",
+        timestamp=15.0,
+        frame_path="data/frames/lecture_001/frame_000015.jpg",
+    )
+    assert sample.timestamp == 15.0
+
+
+def test_frame_sample_empty_frame_path_fails():
+    with pytest.raises(ValidationError):
+        FrameSample(video_id="lecture_001", timestamp=15.0, frame_path="")
+
+
+def test_frame_sample_negative_timestamp_fails():
+    with pytest.raises(ValidationError):
+        FrameSample(
+            video_id="lecture_001",
+            timestamp=-1.0,
+            frame_path="data/frames/lecture_001/frame.jpg",
+        )
+
+
+# --- OCRResult ---------------------------------------------------------------
+
+
+def test_ocr_result_valid_with_text():
+    result = OCRResult(
+        video_id="lecture_001",
+        timestamp=15.0,
+        frame_path="data/frames/lecture_001/frame_000015.jpg",
+        ocr_text="Bayes Theorem",
+        confidence=0.88,
+    )
+    assert result.confidence == 0.88
+
+
+def test_ocr_result_valid_empty_text_without_confidence():
+    result = OCRResult(
+        video_id="lecture_001",
+        timestamp=20.0,
+        frame_path="data/frames/lecture_001/frame_000020.jpg",
+        ocr_text="",
+        confidence=None,
+    )
+    assert result.ocr_text == ""
+
+
+@pytest.mark.parametrize("confidence", [-0.1, 1.1])
+def test_ocr_result_confidence_out_of_range_fails(confidence):
+    with pytest.raises(ValidationError):
+        OCRResult(
+            video_id="lecture_001",
+            timestamp=15.0,
+            frame_path="data/frames/lecture_001/frame.jpg",
+            ocr_text="text",
+            confidence=confidence,
+        )
