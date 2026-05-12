@@ -12,9 +12,11 @@ stepping on each other:
 
 - A package layout (`video_rag/`) and an artifact folder layout (`data/`).
 - JSON / JSONL read/write helpers with Pydantic validation.
-- Two starter schemas:
+- Starter schemas:
   - `VideoManifest` — registers a source video.
   - `MediaMetadata` — probed media facts for that video.
+  - `FrameSample` — a sampled frame from a video.
+  - `VLMCaption` — a generic caption for sampled frame windows.
 - A `python -m video_rag.validate` CLI for smoke-checking artifacts.
 
 > Naming note: the project / demo is **RAGGERS**. The Python package is
@@ -89,6 +91,31 @@ alongside the manifest.
 
 Example: [`examples/media_metadata.example.json`](../examples/media_metadata.example.json).
 
+### `FrameSample`
+
+A sampled frame from a source video. Records are written as JSONL by Stage 5.
+
+| Field        | Type    | Required | Notes                         |
+| ------------ | ------- | -------- | ----------------------------- |
+| `video_id`   | `str`   | yes      | Non-empty; joins to manifest. |
+| `timestamp`  | `float` | yes      | Seconds, must be >= 0.        |
+| `frame_path` | `str`   | yes      | Non-empty path to the frame.  |
+
+### `VLMCaption`
+
+A generic visual caption for a group of sampled frames. Records are written as
+JSONL by Stage 8.
+
+| Field          | Type        | Required | Notes                         |
+| -------------- | ----------- | -------- | ----------------------------- |
+| `video_id`     | `str`       | yes      | Non-empty; joins to manifest. |
+| `start_time`   | `float`     | yes      | Seconds, must be >= 0.        |
+| `end_time`     | `float`     | yes      | Seconds, must be >= 0.        |
+| `frame_paths`  | `list[str]` | yes      | Non-empty frame path list.    |
+| `caption`      | `str`       | yes      | Non-empty caption text.       |
+| `caption_type` | `str`       | yes      | `generic` for Stage 8.        |
+| `model`        | `str`       | yes      | VLM model name.               |
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -121,6 +148,24 @@ python -m video_rag.index.register_video \
 This stage does not inspect codecs, duration, FPS, or audio. Media probing
 happens in Stage 2.
 
+## Stage 8: VLM Frame Captioning
+
+Module: [`video_rag/index/caption_frames.py`](../video_rag/index/caption_frames.py).
+
+Input:
+
+- `data/frames/{video_id}/frame_manifest.jsonl`
+
+Output:
+
+- `data/captions/{video_id}.jsonl`
+
+This stage reads sampled frame records from Stage 5, groups frames into caption
+windows, and uses a VLM to generate generic indexing-time visual captions. The
+default model is `gpt-4o-mini`. It does not OCR, chunk, embed, retrieve, answer
+questions, or modify frame manifests, OCR outputs, or video manifests.
+Query-aware captioning is a future retrieval-time enhancement.
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
@@ -128,8 +173,7 @@ module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
 - `TranscriptSegment` (range: `start_time`, `end_time`, `text`).
-- `FrameSample` (point: `timestamp`, `frame_path`).
-- `OCRRecord`, `CaptionRecord` keyed by `timestamp`.
+- `OCRRecord` keyed by `timestamp`.
 - `Chunk`, `Embedding`, retrieval results, answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them

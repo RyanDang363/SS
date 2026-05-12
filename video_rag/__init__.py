@@ -3,6 +3,6 @@
 Stage 0-lite: shared data contracts and IO utilities.
 """
 
-from video_rag.schemas import MediaMetadata, VideoManifest
+from video_rag.schemas import FrameSample, MediaMetadata, VideoManifest, VLMCaption
 
-__all__ = ["MediaMetadata", "VideoManifest"]
+__all__ = ["FrameSample", "MediaMetadata", "VideoManifest", "VLMCaption"]

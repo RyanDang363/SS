@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from video_rag.schemas import MediaMetadata, VideoManifest
+from video_rag.schemas import FrameSample, MediaMetadata, VideoManifest, VLMCaption
 
 
 # --- VideoManifest -----------------------------------------------------------
@@ -93,3 +93,87 @@ def test_media_metadata_nonpositive_width_fails(width):
 def test_media_metadata_nonpositive_height_fails(height):
     with pytest.raises(ValidationError):
         MediaMetadata(video_id="v", duration_seconds=1.0, has_audio=True, height=height)
+
+
+# --- FrameSample -------------------------------------------------------------
+
+
+def test_frame_sample_valid():
+    sample = FrameSample(
+        video_id="lecture_001",
+        timestamp=15.0,
+        frame_path="data/frames/lecture_001/frame_000015.jpg",
+    )
+    assert sample.frame_path.endswith(".jpg")
+
+
+def test_frame_sample_empty_frame_path_fails():
+    with pytest.raises(ValidationError):
+        FrameSample(video_id="lecture_001", timestamp=15.0, frame_path="")
+
+
+def test_frame_sample_negative_timestamp_fails():
+    with pytest.raises(ValidationError):
+        FrameSample(
+            video_id="lecture_001",
+            timestamp=-1.0,
+            frame_path="data/frames/lecture_001/frame.jpg",
+        )
+
+
+# --- VLMCaption --------------------------------------------------------------
+
+
+def test_vlm_caption_valid():
+    caption = VLMCaption(
+        video_id="lecture_001",
+        start_time=0.0,
+        end_time=30.0,
+        frame_paths=[
+            "data/frames/lecture_001/frame_000000.jpg",
+            "data/frames/lecture_001/frame_000015.jpg",
+        ],
+        caption="A lecturer stands beside a slide.",
+        caption_type="generic",
+        model="gpt-4o-mini",
+    )
+    assert caption.caption_type == "generic"
+
+
+def test_vlm_caption_empty_caption_fails():
+    with pytest.raises(ValidationError):
+        VLMCaption(
+            video_id="lecture_001",
+            start_time=0.0,
+            end_time=30.0,
+            frame_paths=["data/frames/lecture_001/frame.jpg"],
+            caption="",
+            caption_type="generic",
+            model="gpt-4o-mini",
+        )
+
+
+def test_vlm_caption_empty_frame_paths_fails():
+    with pytest.raises(ValidationError):
+        VLMCaption(
+            video_id="lecture_001",
+            start_time=0.0,
+            end_time=30.0,
+            frame_paths=[],
+            caption="A lecturer stands beside a slide.",
+            caption_type="generic",
+            model="gpt-4o-mini",
+        )
+
+
+def test_vlm_caption_non_generic_caption_type_fails():
+    with pytest.raises(ValidationError):
+        VLMCaption(
+            video_id="lecture_001",
+            start_time=0.0,
+            end_time=30.0,
+            frame_paths=["data/frames/lecture_001/frame.jpg"],
+            caption="A lecturer stands beside a slide.",
+            caption_type="query_aware",
+            model="gpt-4o-mini",
+        )

@@ -12,6 +12,8 @@ their own schemas alongside these as they are implemented.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -38,3 +40,27 @@ class MediaMetadata(BaseModel):
     fps: float | None = Field(default=None, gt=0)
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
+
+
+class FrameSample(BaseModel):
+    """A sampled frame from a source video."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+
+
+class VLMCaption(BaseModel):
+    """Generic visual caption for a group of sampled frames."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(ge=0)
+    frame_paths: list[str] = Field(min_length=1)
+    caption: str = Field(min_length=1)
+    caption_type: Literal["generic"] = "generic"
+    model: str = Field(min_length=1)
