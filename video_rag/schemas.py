@@ -40,6 +40,12 @@ class MediaMetadata(BaseModel):
     height: int | None = Field(default=None, gt=0)
 
 
+class FrameSample(BaseModel):
+    """A sampled frame from a source video."""
+    
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+      
 class TranscriptSegment(BaseModel):
     """One timestamped transcript segment for a video."""
 
@@ -60,3 +66,16 @@ class TranscriptSegment(BaseModel):
         if not self.text.strip():
             raise ValueError("text must not be empty or whitespace-only")
         return self
+
+
+class OCRResult(BaseModel):
+    """OCR text detected for a sampled frame."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+    ocr_text: str
+    confidence: float | None = Field(default=None, ge=0, le=1)
+   
