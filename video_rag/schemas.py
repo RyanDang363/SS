@@ -12,7 +12,7 @@ their own schemas alongside these as they are implemented.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class VideoManifest(BaseModel):
@@ -42,12 +42,30 @@ class MediaMetadata(BaseModel):
 
 class FrameSample(BaseModel):
     """A sampled frame from a source video."""
+    
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+      
+class TranscriptSegment(BaseModel):
+    """One timestamped transcript segment for a video."""
 
     model_config = ConfigDict(extra="forbid")
 
     video_id: str = Field(min_length=1)
-    timestamp: float = Field(ge=0)
-    frame_path: str = Field(min_length=1)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+    text: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_segment(self) -> "TranscriptSegment":
+        if self.end_time <= self.start_time:
+            raise ValueError(
+                f"end_time ({self.end_time}) must be greater than "
+                f"start_time ({self.start_time})"
+            )
+        if not self.text.strip():
+            raise ValueError("text must not be empty or whitespace-only")
+        return self
 
 
 class OCRResult(BaseModel):
@@ -60,3 +78,4 @@ class OCRResult(BaseModel):
     frame_path: str = Field(min_length=1)
     ocr_text: str
     confidence: float | None = Field(default=None, ge=0, le=1)
+   
