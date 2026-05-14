@@ -12,6 +12,8 @@ their own schemas alongside these as they are implemented.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -66,6 +68,18 @@ class TranscriptSegment(BaseModel):
         if not self.text.strip():
             raise ValueError("text must not be empty or whitespace-only")
         return self
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+
+
+class VLMCaption(BaseModel):
+    """Generic visual caption for a group of sampled frames."""
+    start_time: float = Field(ge=0)
+    end_time: float = Field(ge=0)
+    frame_paths: list[str] = Field(min_length=1)
+    caption: str = Field(min_length=1)
+    caption_type: Literal["generic"] = "generic"
+    model: str = Field(min_length=1)
 
 
 class OCRResult(BaseModel):

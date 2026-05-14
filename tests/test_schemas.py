@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from video_rag.schemas import FrameSample, MediaMetadata, OCRResult, VideoManifest, TranscriptSegment
+from video_rag.schemas import FrameSample, MediaMetadata, OCRResult, VideoManifest, TranscriptSegment, VLMCaption
 
 # --- VideoManifest -----------------------------------------------------------
 
@@ -103,6 +103,7 @@ def test_frame_sample_valid():
         timestamp=15.0,
         frame_path="data/frames/lecture_001/frame_000015.jpg",
     )
+    assert sample.frame_path.endswith(".jpg")
     assert sample.timestamp == 15.0
 
 
@@ -120,6 +121,62 @@ def test_frame_sample_negative_timestamp_fails():
         )
 
 
+# --- VLMCaption --------------------------------------------------------------
+
+
+def test_vlm_caption_valid():
+    caption = VLMCaption(
+        video_id="lecture_001",
+        start_time=0.0,
+        end_time=30.0,
+        frame_paths=[
+            "data/frames/lecture_001/frame_000000.jpg",
+            "data/frames/lecture_001/frame_000015.jpg",
+        ],
+        caption="A lecturer stands beside a slide.",
+        caption_type="generic",
+        model="gpt-4o-mini",
+    )
+    assert caption.caption_type == "generic"
+
+
+def test_vlm_caption_empty_caption_fails():
+    with pytest.raises(ValidationError):
+        VLMCaption(
+            video_id="lecture_001",
+            start_time=0.0,
+            end_time=30.0,
+            frame_paths=["data/frames/lecture_001/frame.jpg"],
+            caption="",
+            caption_type="generic",
+            model="gpt-4o-mini",
+        )
+
+
+def test_vlm_caption_empty_frame_paths_fails():
+    with pytest.raises(ValidationError):
+        VLMCaption(
+            video_id="lecture_001",
+            start_time=0.0,
+            end_time=30.0,
+            frame_paths=[],
+            caption="A lecturer stands beside a slide.",
+            caption_type="generic",
+            model="gpt-4o-mini",
+        )
+
+
+def test_vlm_caption_non_generic_caption_type_fails():
+    with pytest.raises(ValidationError):
+        VLMCaption(
+            video_id="lecture_001",
+            start_time=0.0,
+            end_time=30.0,
+            frame_paths=["data/frames/lecture_001/frame.jpg"],
+            caption="A lecturer stands beside a slide.",
+            caption_type="query_aware",
+            model="gpt-4o-mini",
+        )
 # --- OCRResult ---------------------------------------------------------------
 
 

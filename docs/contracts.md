@@ -16,6 +16,7 @@ stepping on each other:
   - `VideoManifest` — registers a source video.
   - `MediaMetadata` — probed media facts for that video.
   - `FrameSample` — a sampled frame from a video.
+  - `VLMCaption` — a generic caption for sampled frame windows.
   - `OCRResult` — OCR text detected for a sampled frame.
 - A `python -m video_rag.validate` CLI for smoke-checking artifacts.
 
@@ -100,6 +101,21 @@ A sampled frame from a source video. Records are written as JSONL by Stage 5.
 | `video_id`   | `str`   | yes      | Non-empty; joins to manifest. |
 | `timestamp`  | `float` | yes      | Seconds, must be >= 0.        |
 | `frame_path` | `str`   | yes      | Non-empty path to the frame.  |
+
+### `VLMCaption`
+
+A generic visual caption for a group of sampled frames. Records are written as
+JSONL by Stage 8.
+
+| Field          | Type        | Required | Notes                         |
+| -------------- | ----------- | -------- | ----------------------------- |
+| `video_id`     | `str`       | yes      | Non-empty; joins to manifest. |
+| `start_time`   | `float`     | yes      | Seconds, must be >= 0.        |
+| `end_time`     | `float`     | yes      | Seconds, must be >= 0.        |
+| `frame_paths`  | `list[str]` | yes      | Non-empty frame path list.    |
+| `caption`      | `str`       | yes      | Non-empty caption text.       |
+| `caption_type` | `str`       | yes      | `generic` for Stage 8.        |
+| `model`        | `str`       | yes      | VLM model name.               |
 
 ### `OCRResult`
 
@@ -259,6 +275,25 @@ Input:
 
 Output:
 
+- `data/captions/{video_id}.jsonl`
+
+This stage reads sampled frame records from Stage 5, groups frames into caption
+windows, and uses a VLM to generate generic indexing-time visual captions. The
+default model is `gpt-4o-mini`. It does not OCR, chunk, embed, retrieve, answer
+questions, or modify frame manifests, OCR outputs, or video manifests.
+Query-aware captioning is a future retrieval-time enhancement.
+
+
+## Stage 8: VLM Frame Captioning
+
+Module: [`video_rag/index/caption_frames.py`](../video_rag/index/caption_frames.py).
+
+Input:
+
+- `data/frames/{video_id}/frame_manifest.jsonl`
+
+Output:
+
 - `data/ocr/{video_id}.jsonl`
 
 This stage reads sampled frame records from Stage 5, runs OCR on each
@@ -267,6 +302,7 @@ writes a valid OCR record with empty `ocr_text` and `confidence: null`. It does
 not generate VLM captions, chunk, embed, retrieve, answer questions, or modify
 frame manifests or video manifests.
 
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
@@ -274,6 +310,7 @@ module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
 - `TranscriptSegment` (range: `start_time`, `end_time`, `text`).
+- `OCRRecord` keyed by `timestamp`.
 - `CaptionRecord` keyed by `timestamp`.
 - `FrameSample` (point: `timestamp`, `frame_path`).
 - `OCRRecord`, `CaptionRecord` keyed by `timestamp`.
