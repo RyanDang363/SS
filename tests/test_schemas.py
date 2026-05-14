@@ -3,8 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from video_rag.schemas import FrameSample, MediaMetadata, VideoManifest, VLMCaption
-
+from video_rag.schemas import FrameSample, MediaMetadata, OCRResult, VideoManifest, TranscriptSegment, VLMCaption
 
 # --- VideoManifest -----------------------------------------------------------
 
@@ -105,6 +104,7 @@ def test_frame_sample_valid():
         frame_path="data/frames/lecture_001/frame_000015.jpg",
     )
     assert sample.frame_path.endswith(".jpg")
+    assert sample.timestamp == 15.0
 
 
 def test_frame_sample_empty_frame_path_fails():
@@ -177,3 +177,118 @@ def test_vlm_caption_non_generic_caption_type_fails():
             caption_type="query_aware",
             model="gpt-4o-mini",
         )
+# --- OCRResult ---------------------------------------------------------------
+
+
+def test_ocr_result_valid_with_text():
+    result = OCRResult(
+        video_id="lecture_001",
+        timestamp=15.0,
+        frame_path="data/frames/lecture_001/frame_000015.jpg",
+        ocr_text="Bayes Theorem",
+        confidence=0.88,
+    )
+    assert result.confidence == 0.88
+
+
+def test_ocr_result_valid_empty_text_without_confidence():
+    result = OCRResult(
+        video_id="lecture_001",
+        timestamp=20.0,
+        frame_path="data/frames/lecture_001/frame_000020.jpg",
+        ocr_text="",
+        confidence=None,
+    )
+    assert result.ocr_text == ""
+
+
+@pytest.mark.parametrize("confidence", [-0.1, 1.1])
+def test_ocr_result_confidence_out_of_range_fails(confidence):
+    with pytest.raises(ValidationError):
+        OCRResult(
+            video_id="lecture_001",
+            timestamp=15.0,
+            frame_path="data/frames/lecture_001/frame.jpg",
+            ocr_text="text",
+            confidence=confidence,
+        )
+# --- TranscriptSegment -------------------------------------------------------
+
+
+def test_transcript_segment_valid():
+    s = TranscriptSegment(
+        video_id="lecture_001",
+        start_time=12.4,
+        end_time=18.9,
+        text="Today we are going to introduce Bayes theorem.",
+    )
+    assert s.video_id == "lecture_001"
+    assert s.start_time == 12.4
+    assert s.end_time == 18.9
+
+
+def test_transcript_segment_round_trip():
+    payload = {
+        "video_id": "lecture_001",
+        "start_time": 0.0,
+        "end_time": 1.5,
+        "text": "Hello.",
+    }
+    s = TranscriptSegment.model_validate(payload)
+    assert s.model_dump(mode="json") == payload
+
+
+def test_transcript_segment_start_time_zero_ok():
+    s = TranscriptSegment(video_id="v", start_time=0.0, end_time=0.5, text="x")
+    assert s.start_time == 0.0
+
+
+def test_transcript_segment_extra_field_forbidden():
+    with pytest.raises(ValidationError):
+        TranscriptSegment.model_validate(
+            {
+                "video_id": "v",
+                "start_time": 0.0,
+                "end_time": 1.0,
+                "text": "hi",
+                "speaker": "alice",
+            }
+        )
+
+
+def test_transcript_segment_empty_video_id_fails():
+    with pytest.raises(ValidationError):
+        TranscriptSegment(video_id="", start_time=0.0, end_time=1.0, text="x")
+
+
+@pytest.mark.parametrize("start_time", [-0.1, -1.0])
+def test_transcript_segment_negative_start_time_fails(start_time):
+    with pytest.raises(ValidationError):
+        TranscriptSegment(
+            video_id="v", start_time=start_time, end_time=1.0, text="x"
+        )
+
+
+@pytest.mark.parametrize("end_time", [0, -0.5])
+def test_transcript_segment_nonpositive_end_time_fails(end_time):
+    with pytest.raises(ValidationError):
+        TranscriptSegment(
+            video_id="v", start_time=0.0, end_time=end_time, text="x"
+        )
+
+
+@pytest.mark.parametrize(
+    "start_time, end_time",
+    [(1.0, 1.0), (2.0, 1.5), (0.5, 0.5)],
+)
+def test_transcript_segment_end_not_after_start_fails(start_time, end_time):
+    with pytest.raises(ValidationError):
+        TranscriptSegment(
+            video_id="v", start_time=start_time, end_time=end_time, text="x"
+        )
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\t\n"])
+def test_transcript_segment_empty_or_whitespace_text_fails(text):
+    with pytest.raises(ValidationError):
+        TranscriptSegment(video_id="v", start_time=0.0, end_time=1.0, text=text)
