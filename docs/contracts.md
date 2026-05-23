@@ -12,9 +12,13 @@ stepping on each other:
 
 - A package layout (`video_rag/`) and an artifact folder layout (`data/`).
 - JSON / JSONL read/write helpers with Pydantic validation.
-- Two starter schemas:
+- Starter schemas:
   - `VideoManifest` — registers a source video.
   - `MediaMetadata` — probed media facts for that video.
+  - `FrameSample` — a sampled frame from a video.
+  - `TranscriptSegment` — a timestamped transcript segment.
+  - `OCRResult` — OCR text detected for a sampled frame.
+  - `VLMCaption` — a generic caption for sampled frame windows.
 - A `python -m video_rag.validate` CLI for smoke-checking artifacts.
 
 > Naming note: the project / demo is **RAGGERS**. The Python package is
@@ -106,6 +110,54 @@ Stage 5 to `data/frames/{video_id}/frame_manifest.jsonl`.
 
 Example: [`examples/frame_sample.example.jsonl`](../examples/frame_sample.example.jsonl).
 
+### `VLMCaption`
+
+A generic visual caption for a group of sampled frames. Records are written as
+JSONL by Stage 8.
+
+| Field          | Type        | Required | Notes                         |
+| -------------- | ----------- | -------- | ----------------------------- |
+| `video_id`     | `str`       | yes      | Non-empty; joins to manifest. |
+| `start_time`   | `float`     | yes      | Seconds, must be >= 0.        |
+| `end_time`     | `float`     | yes      | Seconds, must be >= 0.        |
+| `frame_paths`  | `list[str]` | yes      | Non-empty frame path list.    |
+| `caption`      | `str`       | yes      | Non-empty caption text.       |
+| `caption_type` | `str`       | yes      | `generic` for Stage 8.        |
+| `model`        | `str`       | yes      | VLM model name.               |
+
+### `OCRResult`
+
+OCR text detected for a sampled frame. Records are written as JSONL by Stage 7.
+
+| Field        | Type      | Required | Notes                         |
+| ------------ | --------- | -------- | ----------------------------- |
+| `video_id`   | `str`     | yes      | Non-empty; joins to manifest. |
+| `timestamp`  | `float`   | yes      | Seconds, must be >= 0.        |
+| `frame_path` | `str`     | yes      | Non-empty path to the frame.  |
+| `ocr_text`   | `str`     | yes      | Empty string when no text.    |
+| `confidence` | `float?`  | no       | If present, 0 through 1.      |
+
+### `TranscriptSegment`
+
+One timestamped transcript segment for a video. Stored as JSONL — one
+record per line — under `data/transcripts/{video_id}.jsonl`.
+
+| Field        | Type    | Required | Notes                                                  |
+| ------------ | ------- | -------- | ------------------------------------------------------ |
+| `video_id`   | `str`   | yes      | Non-empty; joins to manifest.                          |
+| `start_time` | `float` | yes      | Seconds; `>= 0`.                                       |
+| `end_time`   | `float` | yes      | Seconds; `> start_time`.                               |
+| `text`       | `str`   | yes      | Non-empty after `strip()`.                             |
+
+File-level rules enforced by `python -m video_rag.validate`:
+
+- All records in a file share the same `video_id`.
+- Records are ordered by non-decreasing `start_time`. Small overlaps
+  between adjacent segments are permitted because real ASR output
+  often produces them.
+
+Example: [`examples/transcript_segment.example.jsonl`](../examples/transcript_segment.example.jsonl).
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -137,6 +189,89 @@ python -m video_rag.index.register_video \
 
 This stage does not inspect codecs, duration, FPS, or audio. Media probing
 happens in Stage 2.
+
+## Stage 2: Media Probe
+
+**Implemented.** Module: [`video_rag/index/probe_media.py`](../video_rag/index/probe_media.py).
+
+Input:
+
+- `data/manifests/{video_id}/video_manifest.json`
+
+Output:
+
+- `data/manifests/{video_id}/media_metadata.json`
+
+This stage reads `VideoManifest.source_path` and resolves manifest source paths
+as repo-root-relative values. It uses `ffprobe` to inspect duration, FPS,
+resolution, and audio presence, then writes validated `MediaMetadata`. It does
+not modify `video_manifest.json`, extract audio, or perform later indexing
+steps.
+
+## Stage 3: Audio Extraction
+
+**Implemented.** Module: [`video_rag/index/extract_audio.py`](../video_rag/index/extract_audio.py).
+
+Inputs:
+
+- `data/manifests/{video_id}/video_manifest.json`
+- `data/manifests/{video_id}/media_metadata.json`
+
+Output:
+
+- `data/audio/{video_id}.wav`
+
+This stage requires `has_audio=true` in `media_metadata.json`. It extracts mono
+16 kHz WAV audio for transcription, but does not transcribe; transcription
+happens in Stage 4. It does not modify Stage 1 or Stage 2 artifacts. Manifest
+source paths are repo-root-relative, so `source_path` values such as
+`data/videos/lecture_001.mp4` are resolved from the repository root/current
+working directory, not from the manifest folder.
+
+## Stage 4: Transcription
+
+**Implemented.** Module: [`video_rag/index/transcribe_audio.py`](../video_rag/index/transcribe_audio.py).
+
+Input:
+
+- audio file at `data/audio/{video_id}.wav` (produced by Stage 3)
+
+Output:
+
+- JSONL of `TranscriptSegment` records at
+  `data/transcripts/{video_id}.jsonl`
+
+Transcription is delegated to a provider adapter (see
+[`video_rag/index/transcription_providers.py`](../video_rag/index/transcription_providers.py)).
+The stage attaches `video_id` to each provider segment, sorts by
+`start_time` (stable), validates each record against the schema, and
+writes the result atomically (`*.jsonl.tmp` + `os.replace`).
+
+Built-in providers:
+
+- **`mock`** — deterministic, offline. **Tests and smoke checks only** —
+  do not run on real artifacts.
+- **`openai`** — real provider via OpenAI `whisper-1`. Lazy-imports
+  `openai` and reads `OPENAI_API_KEY` from the environment. Install
+  with `pip install -e .[transcribe]`.
+
+CLI:
+
+```bash
+python -m video_rag.index.transcribe_audio \
+  --video-id lecture_001 \
+  --provider openai \
+  [--language en] \
+  [--overwrite]
+```
+
+`--provider` is **required**: there is no default, so a mock transcript
+can never be produced by accident. A console-script alias
+`raggers-transcribe` is installed.
+
+Existing transcripts are preserved unless `--overwrite` is passed, and
+overwrite replaces only the single target file in `data/transcripts/` —
+sibling transcripts for other videos are never touched.
 
 ## Stage 5: Frame Sampling
 
@@ -194,14 +329,48 @@ This stage does not generate thumbnails (Stage 6), OCR text (Stage 7), or
 VLM captions (Stage 8). Those stages each consume `frame_manifest.jsonl`
 plus the JPEGs as their inputs.
 
+## Stage 7: OCR Extraction
+
+**Implemented.** Module: [`video_rag/index/run_ocr.py`](../video_rag/index/run_ocr.py).
+
+Input:
+
+- `data/frames/{video_id}/frame_manifest.jsonl`
+
+Output:
+
+- `data/ocr/{video_id}.jsonl`
+
+This stage reads sampled frame records from Stage 5, runs OCR on each
+referenced frame, and writes timestamped OCR results. If no text is found, it
+writes a valid OCR record with empty `ocr_text` and `confidence: null`. It does
+not generate VLM captions, chunk, embed, retrieve, answer questions, or modify
+frame manifests or video manifests.
+
+## Stage 8: VLM Frame Captioning
+
+**Implemented.** Module: [`video_rag/index/caption_frames.py`](../video_rag/index/caption_frames.py).
+
+Input:
+
+- `data/frames/{video_id}/frame_manifest.jsonl`
+
+Output:
+
+- `data/captions/{video_id}.jsonl`
+
+This stage reads sampled frame records from Stage 5, groups frames into caption
+windows, and uses a VLM to generate generic indexing-time visual captions. The
+default model is `gpt-4o-mini`. It does not OCR, chunk, embed, retrieve, answer
+questions, or modify frame manifests, OCR outputs, or video manifests.
+Query-aware captioning is a future retrieval-time enhancement.
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- `TranscriptSegment` (range: `start_time`, `end_time`, `text`).
-- `OCRRecord`, `CaptionRecord` keyed by `timestamp`.
 - `Chunk`, `Embedding`, retrieval results, answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
@@ -210,14 +379,17 @@ here.
 ## Folder layout
 
 The artifact folder layout is documented in [`../data/README.md`](../data/README.md).
-Stage 0-lite only writes to `data/manifests/` and `data/validation/`; other
-folders are placeholders.
+Implemented stages write to `data/videos/`, `data/manifests/`, `data/audio/`,
+`data/transcripts/`, `data/frames/`, `data/ocr/`, `data/captions/`, and
+`data/validation/`; other folders are placeholders.
 
 ## Validating artifacts
 
 ```bash
 python -m video_rag.validate examples/video_manifest.example.json --type video_manifest
 python -m video_rag.validate examples/media_metadata.example.json --type media_metadata
+python -m video_rag.validate examples/frame_sample.example.jsonl --type frame_sample
+python -m video_rag.validate examples/transcript_segment.example.jsonl --type transcript_segments
 ```
 
 A console script `raggers-validate` is also installed as an alias.

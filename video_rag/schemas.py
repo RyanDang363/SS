@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class VideoManifest(BaseModel):
@@ -62,3 +62,51 @@ class FrameSample(BaseModel):
     width: int = Field(gt=0)
     height: int = Field(gt=0)
     sampling_method: SamplingMethod = "fixed_interval"
+
+
+class TranscriptSegment(BaseModel):
+    """One timestamped transcript segment for a video."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+    text: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_segment(self) -> "TranscriptSegment":
+        if self.end_time <= self.start_time:
+            raise ValueError(
+                f"end_time ({self.end_time}) must be greater than "
+                f"start_time ({self.start_time})"
+            )
+        if not self.text.strip():
+            raise ValueError("text must not be empty or whitespace-only")
+        return self
+
+
+class VLMCaption(BaseModel):
+    """Generic visual caption for a group of sampled frames."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(ge=0)
+    frame_paths: list[str] = Field(min_length=1)
+    caption: str = Field(min_length=1)
+    caption_type: Literal["generic"] = "generic"
+    model: str = Field(min_length=1)
+
+
+class OCRResult(BaseModel):
+    """OCR text detected for a sampled frame."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    timestamp: float = Field(ge=0)
+    frame_path: str = Field(min_length=1)
+    ocr_text: str
+    confidence: float | None = Field(default=None, ge=0, le=1)
