@@ -1,26 +1,26 @@
 """Stage 5: sample frames from a registered video at fixed time intervals.
 
 Reads ``VideoManifest`` and ``MediaMetadata`` produced by earlier stages,
-computes a fixed-interval timestamp schedule, and delegates the heavy work
-(decoding + JPEG encoding) to a small C++/OpenCV binary
-(``raggers_frame_extract``). Validates each emitted record against
-``FrameSample`` and writes ``data/frames/{video_id}/frame_manifest.jsonl``.
+computes a fixed-interval timestamp schedule, and writes timestamped JPEG
+frames using OpenCV. Validates each record against ``FrameSample`` and writes
+``data/frames/{video_id}/frame_manifest.jsonl``.
 
 This stage does NOT generate thumbnails, OCR text, captions, or chunks.
+
+A standalone C++ extractor (``cpp/frame_extract/``) is also provided as an
+optional high-throughput alternative. It shares the same output contract and
+can be swapped in without changing downstream stages. See
+``cpp/frame_extract/README.md`` for build instructions.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable
 
-from pydantic import ValidationError
+import cv2
 
 from video_rag.io_utils import read_json, write_jsonl
 from video_rag.schemas import FrameSample, MediaMetadata, VideoManifest
@@ -29,9 +29,6 @@ PathLike = str | Path
 
 DEFAULT_INTERVAL_SECONDS = 5
 DEFAULT_JPEG_QUALITY = 85
-DEFAULT_BINARY_RELATIVE = Path("cpp") / "frame_extract" / "build" / "raggers_frame_extract"
-BINARY_ENV_VAR = "RAGGERS_FRAME_EXTRACT_BIN"
-SUBPROCESS_TIMEOUT_SECONDS = 600
 
 
 def _coerce_positive_int_interval(interval_seconds: int | float) -> int:
@@ -72,30 +69,6 @@ def _resolve_video_path(data_dir: Path, manifest: VideoManifest) -> Path:
     return (data_dir.parent / manifest.source_path).resolve()
 
 
-def _resolve_binary(explicit: PathLike | None) -> Path:
-    """Find the ``raggers_frame_extract`` binary or raise with a helpful hint."""
-    candidates: list[Path] = []
-    if explicit is not None:
-        candidates.append(Path(explicit))
-    env_value = os.environ.get(BINARY_ENV_VAR)
-    if env_value:
-        candidates.append(Path(env_value))
-    candidates.append(Path.cwd() / DEFAULT_BINARY_RELATIVE)
-
-    for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate.resolve()
-
-    searched = ", ".join(str(c) for c in candidates)
-    raise FileNotFoundError(
-        "raggers_frame_extract binary not found. Build it with:\n"
-        "  cmake -S cpp/frame_extract -B cpp/frame_extract/build "
-        "-DCMAKE_BUILD_TYPE=Release\n"
-        "  cmake --build cpp/frame_extract/build -j\n"
-        f"Searched: {searched}"
-    )
-
-
 def _is_dir_nonempty(path: Path) -> bool:
     return path.exists() and path.is_dir() and any(path.iterdir())
 
@@ -109,95 +82,55 @@ def _to_repo_relative(absolute: Path, repo_root: Path) -> str:
     return rel.as_posix()
 
 
-def _parse_extractor_stdout(
-    stdout: str, *, video_id: str, repo_root: Path
-) -> list[FrameSample]:
-    """Parse one ``FrameSample`` per non-blank stdout line emitted by the binary.
-
-    The binary prints ``timestamp / frame_path / width / height`` per frame.
-    Python is responsible for attaching ``video_id`` and ``sampling_method``
-    so the binary stays agnostic to the wider artifact contract.
-    """
-    samples: list[FrameSample] = []
-    for lineno, raw in enumerate(stdout.splitlines(), start=1):
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                f"frame extractor emitted invalid JSON on line {lineno}: {exc.msg}"
-            ) from exc
-        if not isinstance(obj, dict):
-            raise RuntimeError(
-                f"frame extractor line {lineno} is not a JSON object: {obj!r}"
-            )
-        frame_path = obj.get("frame_path")
-        if not isinstance(frame_path, str) or not frame_path:
-            raise RuntimeError(
-                f"frame extractor line {lineno} missing 'frame_path'"
-            )
-        record = {
-            "video_id": video_id,
-            "timestamp": obj.get("timestamp"),
-            "frame_path": _to_repo_relative(Path(frame_path), repo_root),
-            "width": obj.get("width"),
-            "height": obj.get("height"),
-            "sampling_method": "fixed_interval",
-        }
-        try:
-            samples.append(FrameSample.model_validate(record))
-        except ValidationError as exc:
-            raise RuntimeError(
-                f"frame extractor line {lineno} failed FrameSample validation:\n{exc}"
-            ) from exc
-    return samples
-
-
-def _format_timestamps_arg(timestamps: Iterable[float]) -> str:
-    return ",".join(f"{t:.3f}" for t in timestamps)
-
-
-def _run_extractor(
-    binary: Path,
-    *,
+def _extract_frames(
     video_path: Path,
     out_dir: Path,
     timestamps: list[float],
-    quality: int,
-) -> str:
-    """Invoke the C++ binary and return its stdout. Raise on failure."""
-    cmd = [
-        str(binary),
-        "--video",
-        str(video_path),
-        "--out-dir",
-        str(out_dir),
-        "--timestamps",
-        _format_timestamps_arg(timestamps),
-        "--quality",
-        str(quality),
-    ]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=SUBPROCESS_TIMEOUT_SECONDS,
-        )
-    except FileNotFoundError as exc:
-        raise FileNotFoundError(
-            f"failed to execute frame extractor at {binary}: {exc}"
-        ) from exc
+    jpeg_quality: int,
+) -> list[dict]:
+    """Open ``video_path``, seek to each timestamp, write a JPEG, return records.
 
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip() or "(no stderr)"
-        raise RuntimeError(
-            f"frame extractor exited with code {result.returncode}: {stderr}"
-        )
-    return result.stdout
+    Isolated into its own function so tests can monkeypatch it without
+    requiring a real video file or OpenCV installation.
+
+    Returns:
+        List of dicts with keys: ``timestamp``, ``frame_path`` (absolute str),
+        ``width``, ``height``.
+
+    Raises:
+        RuntimeError: if the video cannot be opened, a frame cannot be decoded,
+            or a JPEG cannot be written.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"failed to open video: {video_path}")
+
+    encode_params = [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality]
+    records: list[dict] = []
+    try:
+        for ts in timestamps:
+            cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000.0)
+            ok, frame = cap.read()
+            if not ok or frame is None or frame.size == 0:
+                raise RuntimeError(
+                    f"failed to decode frame at {ts}s from {video_path}"
+                )
+            out_path = out_dir / f"frame_{int(round(ts)):06d}.jpg"
+            if not cv2.imwrite(str(out_path), frame, encode_params):
+                raise RuntimeError(f"failed to write JPEG to {out_path}")
+            h, w = frame.shape[:2]
+            records.append(
+                {
+                    "timestamp": ts,
+                    "frame_path": str(out_path),
+                    "width": w,
+                    "height": h,
+                }
+            )
+    finally:
+        cap.release()
+
+    return records
 
 
 def sample_frames(
@@ -205,7 +138,6 @@ def sample_frames(
     data_dir: PathLike = "data",
     interval_seconds: int | float = DEFAULT_INTERVAL_SECONDS,
     overwrite: bool = False,
-    binary_path: PathLike | None = None,
     jpeg_quality: int = DEFAULT_JPEG_QUALITY,
 ) -> list[FrameSample]:
     """Sample frames at a fixed interval. Returns the persisted ``FrameSample`` records.
@@ -213,10 +145,9 @@ def sample_frames(
     Raises:
         ValueError: ``interval_seconds`` is not a positive integer or ``video_id``
             is empty.
-        FileNotFoundError: required input artifact, video file, or extractor
-            binary is missing.
+        FileNotFoundError: required input artifact or video file is missing.
         FileExistsError: prior frame outputs exist and ``overwrite`` is ``False``.
-        RuntimeError: the extractor failed or emitted malformed output.
+        RuntimeError: OpenCV failed to decode or write a frame.
     """
     if not isinstance(video_id, str) or not video_id.strip():
         raise ValueError("video_id must be a non-empty string")
@@ -275,21 +206,28 @@ def sample_frames(
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    binary = _resolve_binary(binary_path)
     timestamps = _compute_schedule(metadata.duration_seconds, interval)
 
     if not timestamps:
         write_jsonl(manifest_out, [])
         return []
 
-    stdout = _run_extractor(
-        binary,
-        video_path=video_path,
-        out_dir=out_dir.resolve(),
-        timestamps=timestamps,
-        quality=jpeg_quality,
-    )
-    samples = _parse_extractor_stdout(stdout, video_id=video_id, repo_root=repo_root)
+    records = _extract_frames(video_path, out_dir.resolve(), timestamps, jpeg_quality)
+
+    samples: list[FrameSample] = []
+    for rec in records:
+        frame_path_rel = _to_repo_relative(Path(rec["frame_path"]), repo_root)
+        samples.append(
+            FrameSample(
+                video_id=video_id,
+                timestamp=rec["timestamp"],
+                frame_path=frame_path_rel,
+                width=rec["width"],
+                height=rec["height"],
+                sampling_method="fixed_interval",
+            )
+        )
+
     write_jsonl(manifest_out, samples)
     return samples
 
@@ -316,13 +254,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--overwrite", action="store_true", help="Replace existing frame outputs.")
     p.add_argument(
-        "--binary-path",
-        dest="binary_path",
-        type=Path,
-        default=None,
-        help="Path to the raggers_frame_extract binary.",
-    )
-    p.add_argument(
         "--quality",
         dest="jpeg_quality",
         type=int,
@@ -340,7 +271,6 @@ def main(argv: list[str] | None = None) -> int:
             data_dir=args.data_dir,
             interval_seconds=args.interval_seconds,
             overwrite=args.overwrite,
-            binary_path=args.binary_path,
             jpeg_quality=args.jpeg_quality,
         )
     except (FileNotFoundError, FileExistsError, ValueError, RuntimeError, OSError) as e:

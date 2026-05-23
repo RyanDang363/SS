@@ -141,7 +141,8 @@ happens in Stage 2.
 ## Stage 5: Frame Sampling
 
 **Implemented.** Module: [`video_rag/index/sample_frames.py`](../video_rag/index/sample_frames.py).
-Compute kernel: [`cpp/frame_extract/`](../cpp/frame_extract/).
+Compute: `opencv-python-headless` (Python). Optional C++ kernel:
+[`cpp/frame_extract/`](../cpp/frame_extract/).
 
 Inputs:
 
@@ -163,15 +164,14 @@ Behavior:
 - V0 only accepts integer-second `interval_seconds` (default `5`).
 - Existing frame outputs are preserved unless `--overwrite` is passed; on
   overwrite, only this video's `data/frames/{video_id}/` is replaced.
-- Decoding and JPEG encoding happen in a small C++/OpenCV binary
-  (`raggers_frame_extract`) invoked via `subprocess`. Python owns
-  manifest IO, schema validation, and overwrite policy.
+- Decoding and JPEG encoding are performed by `opencv-python-headless` (a
+  regular Python dep — no build step required). Python owns all of manifest
+  IO, schema validation, and overwrite policy.
 
-Build the C++ binary once before running Stage 5:
+No build step required for V0. Simply install the Python package:
 
 ```bash
-cmake -S cpp/frame_extract -B cpp/frame_extract/build -DCMAKE_BUILD_TYPE=Release
-cmake --build cpp/frame_extract/build -j
+pip install -e ".[dev]"
 ```
 
 CLI:
@@ -182,8 +182,13 @@ python -m video_rag.index.sample_frames \
   --interval-seconds 5
 ```
 
-Optional: override the binary location with `--binary-path`, or set
-`RAGGERS_FRAME_EXTRACT_BIN` in the environment.
+Optional flags: `--quality` (JPEG quality 1-100, default 85),
+`--overwrite`, `--data-dir`.
+
+An optional high-throughput C++ extractor (`cpp/frame_extract/`) is kept in
+the repo and shares the same output contract. See
+[`cpp/frame_extract/README.md`](../cpp/frame_extract/README.md) if you want
+to build and use it instead.
 
 This stage does not generate thumbnails (Stage 6), OCR text (Stage 7), or
 VLM captions (Stage 8). Those stages each consume `frame_manifest.jsonl`
@@ -196,7 +201,6 @@ module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
 - `TranscriptSegment` (range: `start_time`, `end_time`, `text`).
-- `FrameSample` (point: `timestamp`, `frame_path`).
 - `OCRRecord`, `CaptionRecord` keyed by `timestamp`.
 - `Chunk`, `Embedding`, retrieval results, answer payloads.
 

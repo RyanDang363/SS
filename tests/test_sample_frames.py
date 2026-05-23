@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import json
-import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from video_rag.index import sample_frames as sf
-from video_rag.io_utils import read_jsonl, write_json  # noqa: F401  (used via helpers + tests)
+from video_rag.io_utils import read_jsonl, write_json
 from video_rag.schemas import FrameSample, MediaMetadata, VideoManifest
 
 
@@ -56,49 +53,33 @@ def _write_video_file(
     return out
 
 
-def _make_fake_binary(tmp_path: Path) -> Path:
-    """A real on-disk executable so _resolve_binary accepts it. The body is
-    irrelevant because subprocess.run is monkeypatched in every test that
-    invokes the orchestrator's full path."""
-    binary = tmp_path / "fake_extractor"
-    binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    binary.chmod(0o755)
-    return binary
-
-
 def _seed(
     tmp_path: Path,
     *,
     video_id: str = "lecture_001",
     duration_seconds: float = 30.0,
     write_video: bool = True,
-) -> tuple[Path, Path]:
+) -> Path:
+    """Set up Stage 1 + 2 artifacts. Returns data_dir."""
     data_dir = tmp_path / "data"
     _write_video_manifest(data_dir, video_id=video_id)
     _write_media_metadata(data_dir, video_id=video_id, duration_seconds=duration_seconds)
     if write_video:
         _write_video_file(data_dir, video_id=video_id)
-    binary = _make_fake_binary(tmp_path)
-    return data_dir, binary
+    return data_dir
 
 
-def _fake_completed(returncode: int, stdout: str = "", stderr: str = "") -> Any:
-    return subprocess.CompletedProcess(
-        args=["raggers_frame_extract"], returncode=returncode, stdout=stdout, stderr=stderr
-    )
-
-
-def _make_extractor_stdout(out_dir: Path, timestamps: list[float]) -> str:
-    lines = []
-    for ts in timestamps:
-        rec = {
+def _fake_records(out_dir: Path, timestamps: list[float]) -> list[dict]:
+    """Return fake _extract_frames output for the given timestamps."""
+    return [
+        {
             "timestamp": ts,
             "frame_path": str(out_dir.resolve() / f"frame_{int(round(ts)):06d}.jpg"),
             "width": 1920,
             "height": 1080,
         }
-        lines.append(json.dumps(rec))
-    return "\n".join(lines) + ("\n" if lines else "")
+        for ts in timestamps
+    ]
 
 
 # --- pure helpers -----------------------------------------------------------
@@ -136,25 +117,24 @@ def test_coerce_positive_int_interval_accepts(good, expected):
 
 
 def test_successful_sampling(tmp_path: Path, monkeypatch):
-    data_dir, binary = _seed(tmp_path, duration_seconds=15.0)
+    data_dir = _seed(tmp_path, duration_seconds=15.0)
     out_dir = data_dir / "frames" / "lecture_001"
 
     captured: dict[str, Any] = {}
 
-    def fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        captured["kwargs"] = kwargs
-        return _fake_completed(
-            0, stdout=_make_extractor_stdout(out_dir, [0.0, 5.0, 10.0])
-        )
+    def fake_extract(video_path, out_dir, timestamps, jpeg_quality):
+        captured["video_path"] = video_path
+        captured["out_dir"] = out_dir
+        captured["timestamps"] = timestamps
+        captured["jpeg_quality"] = jpeg_quality
+        return _fake_records(out_dir, timestamps)
 
-    monkeypatch.setattr(sf.subprocess, "run", fake_run)
+    monkeypatch.setattr(sf, "_extract_frames", fake_extract)
 
     samples = sf.sample_frames(
         video_id="lecture_001",
         data_dir=data_dir,
         interval_seconds=5,
-        binary_path=binary,
     )
 
     assert len(samples) == 3
@@ -164,15 +144,9 @@ def test_successful_sampling(tmp_path: Path, monkeypatch):
     assert all(s.sampling_method == "fixed_interval" for s in samples)
     assert all(s.thumbnail_path is None for s in samples)
 
-    cmd = captured["cmd"]
-    assert cmd[0] == str(binary.resolve())
-    assert "--video" in cmd
-    assert "--out-dir" in cmd
-    assert "--timestamps" in cmd
-    timestamps_arg = cmd[cmd.index("--timestamps") + 1]
-    assert timestamps_arg == "0.000,5.000,10.000"
-    assert "--quality" in cmd
-    assert cmd[cmd.index("--quality") + 1] == "85"
+    assert captured["timestamps"] == [0.0, 5.0, 10.0]
+    assert captured["jpeg_quality"] == 85
+    assert captured["video_path"].is_file()
 
     manifest_out = out_dir / "frame_manifest.jsonl"
     loaded = list(read_jsonl(manifest_out, FrameSample))
@@ -180,14 +154,13 @@ def test_successful_sampling(tmp_path: Path, monkeypatch):
 
 
 def test_frame_paths_are_repo_root_relative(tmp_path: Path, monkeypatch):
-    data_dir, binary = _seed(tmp_path, duration_seconds=10.0)
-    out_dir = data_dir / "frames" / "lecture_001"
+    data_dir = _seed(tmp_path, duration_seconds=10.0)
 
     monkeypatch.setattr(
-        sf.subprocess,
-        "run",
-        lambda cmd, **kw: _fake_completed(
-            0, stdout=_make_extractor_stdout(out_dir, [0.0, 5.0])
+        sf,
+        "_extract_frames",
+        lambda video_path, out_dir, timestamps, jpeg_quality: _fake_records(
+            out_dir, timestamps
         ),
     )
 
@@ -195,49 +168,45 @@ def test_frame_paths_are_repo_root_relative(tmp_path: Path, monkeypatch):
         video_id="lecture_001",
         data_dir=data_dir,
         interval_seconds=5,
-        binary_path=binary,
     )
 
-    expected = f"{data_dir.name}/frames/lecture_001/frame_{0:06d}.jpg"
-    assert samples[0].frame_path == expected
-    assert samples[1].frame_path.endswith(f"/frames/lecture_001/frame_{5:06d}.jpg")
     for s in samples:
-        assert "\\" not in s.frame_path
         assert not Path(s.frame_path).is_absolute()
+        assert "\\" not in s.frame_path
 
 
 def test_short_video_samples_only_zero(tmp_path: Path, monkeypatch):
-    data_dir, binary = _seed(tmp_path, duration_seconds=0.5)
-    out_dir = data_dir / "frames" / "lecture_001"
+    data_dir = _seed(tmp_path, duration_seconds=0.5)
 
     monkeypatch.setattr(
-        sf.subprocess,
-        "run",
-        lambda cmd, **kw: _fake_completed(0, stdout=_make_extractor_stdout(out_dir, [0.0])),
+        sf,
+        "_extract_frames",
+        lambda video_path, out_dir, timestamps, jpeg_quality: _fake_records(
+            out_dir, timestamps
+        ),
     )
 
     samples = sf.sample_frames(
         video_id="lecture_001",
         data_dir=data_dir,
         interval_seconds=5,
-        binary_path=binary,
     )
     assert len(samples) == 1
     assert samples[0].timestamp == 0.0
 
 
 def test_overwrite_replaces_prior_frames(tmp_path: Path, monkeypatch):
-    data_dir, binary = _seed(tmp_path, duration_seconds=10.0)
+    data_dir = _seed(tmp_path, duration_seconds=10.0)
     out_dir = data_dir / "frames" / "lecture_001"
     out_dir.mkdir(parents=True)
     (out_dir / "stale.jpg").write_bytes(b"stale")
     (out_dir / "frame_manifest.jsonl").write_text("stale", encoding="utf-8")
 
     monkeypatch.setattr(
-        sf.subprocess,
-        "run",
-        lambda cmd, **kw: _fake_completed(
-            0, stdout=_make_extractor_stdout(out_dir, [0.0, 5.0])
+        sf,
+        "_extract_frames",
+        lambda video_path, out_dir, timestamps, jpeg_quality: _fake_records(
+            out_dir, timestamps
         ),
     )
 
@@ -246,27 +215,26 @@ def test_overwrite_replaces_prior_frames(tmp_path: Path, monkeypatch):
         data_dir=data_dir,
         interval_seconds=5,
         overwrite=True,
-        binary_path=binary,
     )
     assert len(samples) == 2
     assert not (out_dir / "stale.jpg").exists()
 
 
 def test_returns_records_in_order(tmp_path: Path, monkeypatch):
-    data_dir, binary = _seed(tmp_path, duration_seconds=20.0)
-    out_dir = data_dir / "frames" / "lecture_001"
+    data_dir = _seed(tmp_path, duration_seconds=20.0)
+
     monkeypatch.setattr(
-        sf.subprocess,
-        "run",
-        lambda cmd, **kw: _fake_completed(
-            0, stdout=_make_extractor_stdout(out_dir, [0.0, 5.0, 10.0, 15.0])
+        sf,
+        "_extract_frames",
+        lambda video_path, out_dir, timestamps, jpeg_quality: _fake_records(
+            out_dir, timestamps
         ),
     )
+
     samples = sf.sample_frames(
         video_id="lecture_001",
         data_dir=data_dir,
         interval_seconds=5,
-        binary_path=binary,
     )
     assert [s.timestamp for s in samples] == [0.0, 5.0, 10.0, 15.0]
 
@@ -278,118 +246,52 @@ def test_missing_video_manifest(tmp_path: Path):
     data_dir = tmp_path / "data"
     _write_media_metadata(data_dir)
     _write_video_file(data_dir)
-    binary = _make_fake_binary(tmp_path)
     with pytest.raises(FileNotFoundError, match="video_manifest.json"):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=5,
-            binary_path=binary,
-        )
+        sf.sample_frames(video_id="lecture_001", data_dir=data_dir, interval_seconds=5)
 
 
 def test_missing_media_metadata(tmp_path: Path):
     data_dir = tmp_path / "data"
     _write_video_manifest(data_dir)
     _write_video_file(data_dir)
-    binary = _make_fake_binary(tmp_path)
     with pytest.raises(FileNotFoundError, match="media_metadata.json"):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=5,
-            binary_path=binary,
-        )
+        sf.sample_frames(video_id="lecture_001", data_dir=data_dir, interval_seconds=5)
 
 
 def test_missing_video_file(tmp_path: Path):
-    data_dir, binary = _seed(tmp_path, write_video=False)
+    data_dir = _seed(tmp_path, write_video=False)
     with pytest.raises(FileNotFoundError, match="registered video file not found"):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=5,
-            binary_path=binary,
-        )
+        sf.sample_frames(video_id="lecture_001", data_dir=data_dir, interval_seconds=5)
 
 
 @pytest.mark.parametrize("bad", [0, -1, -5, 0.5, "5", None])
 def test_invalid_interval(tmp_path: Path, bad):
-    data_dir, binary = _seed(tmp_path)
+    data_dir = _seed(tmp_path)
     with pytest.raises(ValueError):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=bad,
-            binary_path=binary,
-        )
+        sf.sample_frames(video_id="lecture_001", data_dir=data_dir, interval_seconds=bad)
 
 
-def test_existing_outputs_without_overwrite(tmp_path: Path, monkeypatch):
-    data_dir, binary = _seed(tmp_path)
+def test_existing_outputs_without_overwrite(tmp_path: Path):
+    data_dir = _seed(tmp_path)
     out_dir = data_dir / "frames" / "lecture_001"
     out_dir.mkdir(parents=True)
     (out_dir / "frame_manifest.jsonl").write_text("{}\n", encoding="utf-8")
 
-    monkeypatch.setattr(
-        sf.subprocess,
-        "run",
-        lambda cmd, **kw: pytest.fail("extractor must not be called"),
-    )
     with pytest.raises(FileExistsError):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=5,
-            binary_path=binary,
-        )
+        sf.sample_frames(video_id="lecture_001", data_dir=data_dir, interval_seconds=5)
 
 
-def test_extractor_nonzero_exit_raises(tmp_path: Path, monkeypatch):
-    data_dir, binary = _seed(tmp_path)
-    monkeypatch.setattr(
-        sf.subprocess,
-        "run",
-        lambda cmd, **kw: _fake_completed(7, stdout="", stderr="bad video"),
-    )
-    with pytest.raises(RuntimeError, match="exited with code 7"):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=5,
-            binary_path=binary,
-        )
+def test_extract_frames_error_propagates(tmp_path: Path, monkeypatch):
+    """RuntimeError from _extract_frames surfaces to the caller."""
+    data_dir = _seed(tmp_path)
 
+    def raise_error(*args, **kwargs):
+        raise RuntimeError("cv2 failed to decode")
 
-def test_extractor_stdout_invalid_json_raises(tmp_path: Path, monkeypatch):
-    data_dir, binary = _seed(tmp_path)
-    monkeypatch.setattr(
-        sf.subprocess,
-        "run",
-        lambda cmd, **kw: _fake_completed(0, stdout="not json\n"),
-    )
-    with pytest.raises(RuntimeError, match="invalid JSON"):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=5,
-            binary_path=binary,
-        )
+    monkeypatch.setattr(sf, "_extract_frames", raise_error)
 
-
-def test_binary_missing_with_no_env(tmp_path: Path, monkeypatch):
-    data_dir = tmp_path / "data"
-    _write_video_manifest(data_dir)
-    _write_media_metadata(data_dir)
-    _write_video_file(data_dir)
-    monkeypatch.delenv(sf.BINARY_ENV_VAR, raising=False)
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(FileNotFoundError, match="raggers_frame_extract binary not found"):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=5,
-        )
+    with pytest.raises(RuntimeError, match="cv2 failed to decode"):
+        sf.sample_frames(video_id="lecture_001", data_dir=data_dir, interval_seconds=5)
 
 
 def test_video_id_mismatch(tmp_path: Path):
@@ -404,14 +306,8 @@ def test_video_id_mismatch(tmp_path: Path):
     write_json(
         data_dir / "manifests" / "lecture_001" / "media_metadata.json", bad_metadata
     )
-    binary = _make_fake_binary(tmp_path)
     with pytest.raises(ValueError, match="video_id mismatch"):
-        sf.sample_frames(
-            video_id="lecture_001",
-            data_dir=data_dir,
-            interval_seconds=5,
-            binary_path=binary,
-        )
+        sf.sample_frames(video_id="lecture_001", data_dir=data_dir, interval_seconds=5)
 
 
 def test_empty_video_id():
@@ -423,15 +319,16 @@ def test_empty_video_id():
 
 
 def test_cli_happy_path(tmp_path: Path, monkeypatch, capsys):
-    data_dir, binary = _seed(tmp_path, duration_seconds=15.0)
-    out_dir = data_dir / "frames" / "lecture_001"
+    data_dir = _seed(tmp_path, duration_seconds=15.0)
+
     monkeypatch.setattr(
-        sf.subprocess,
-        "run",
-        lambda cmd, **kw: _fake_completed(
-            0, stdout=_make_extractor_stdout(out_dir, [0.0, 5.0, 10.0])
+        sf,
+        "_extract_frames",
+        lambda video_path, out_dir, timestamps, jpeg_quality: _fake_records(
+            out_dir, timestamps
         ),
     )
+
     rc = sf.main(
         [
             "--video-id",
@@ -440,21 +337,18 @@ def test_cli_happy_path(tmp_path: Path, monkeypatch, capsys):
             str(data_dir),
             "--interval-seconds",
             "5",
-            "--binary-path",
-            str(binary),
         ]
     )
     assert rc == 0
-    captured = capsys.readouterr()
-    assert "Sampled 3 frame(s)" in captured.out
-    assert (out_dir / "frame_manifest.jsonl").is_file()
+    out = capsys.readouterr().out
+    assert "Sampled 3 frame(s)" in out
+    assert (data_dir / "frames" / "lecture_001" / "frame_manifest.jsonl").is_file()
 
 
-def test_cli_failure_returns_one(tmp_path: Path, monkeypatch, capsys):
+def test_cli_failure_returns_one(tmp_path: Path, capsys):
     data_dir = tmp_path / "data"
     _write_media_metadata(data_dir)
     _write_video_file(data_dir)
-    binary = _make_fake_binary(tmp_path)
     rc = sf.main(
         [
             "--video-id",
@@ -463,17 +357,14 @@ def test_cli_failure_returns_one(tmp_path: Path, monkeypatch, capsys):
             str(data_dir),
             "--interval-seconds",
             "5",
-            "--binary-path",
-            str(binary),
         ]
     )
     assert rc == 1
-    captured = capsys.readouterr()
-    assert "FAIL" in captured.err
+    assert "FAIL" in capsys.readouterr().err
 
 
 def test_cli_invalid_interval_returns_one(tmp_path: Path, capsys):
-    data_dir, binary = _seed(tmp_path)
+    data_dir = _seed(tmp_path)
     rc = sf.main(
         [
             "--video-id",
@@ -482,10 +373,7 @@ def test_cli_invalid_interval_returns_one(tmp_path: Path, capsys):
             str(data_dir),
             "--interval-seconds",
             "0",
-            "--binary-path",
-            str(binary),
         ]
     )
     assert rc == 1
-    captured = capsys.readouterr()
-    assert "FAIL" in captured.err
+    assert "FAIL" in capsys.readouterr().err

@@ -1,23 +1,20 @@
-"""Integration smoke test for the real C++ frame extractor.
+"""Integration smoke test for the Python OpenCV frame extractor.
 
-Skipped automatically unless:
-    1. ``raggers_frame_extract`` has been built (default location or
-       ``RAGGERS_FRAME_EXTRACT_BIN`` env var), and
-    2. ``ffmpeg`` is on ``PATH`` (used to synthesize a tiny fixture video).
+Skipped automatically unless ``ffmpeg`` is on ``PATH`` (used to synthesize a
+tiny fixture video). No C++ binary or build step is required.
 
-To enable locally:
-    brew install ffmpeg
-    cmake -S cpp/frame_extract -B cpp/frame_extract/build -DCMAKE_BUILD_TYPE=Release
-    cmake --build cpp/frame_extract/build -j
-    pytest tests/test_sample_frames_integration.py -q
+To enable locally::
 
-This test exercises the full Stage 5 path end-to-end: real video file, real
-C++ binary, real OpenCV decode, real JPEG writes, real Pydantic validation.
+    brew install ffmpeg   # macOS
+    apt install ffmpeg    # Debian / Ubuntu
+    pytest tests/test_sample_frames_integration.py -v
+
+This test exercises the full Stage 5 path end-to-end without mocking: real
+video file → real OpenCV decode → real JPEG writes → real Pydantic validation.
 """
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -28,9 +25,6 @@ from video_rag.index import sample_frames as sf
 from video_rag.io_utils import read_jsonl, write_json
 from video_rag.schemas import FrameSample, MediaMetadata, VideoManifest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_BINARY = REPO_ROOT / "cpp" / "frame_extract" / "build" / "raggers_frame_extract"
-
 FIXTURE_DURATION_SECONDS = 3
 FIXTURE_FPS = 30
 FIXTURE_WIDTH = 64
@@ -38,25 +32,13 @@ FIXTURE_HEIGHT = 48
 FIXTURE_INTERVAL_SECONDS = 1
 
 
-def _resolve_real_binary() -> Path | None:
-    candidates: list[Path] = []
-    env = os.environ.get(sf.BINARY_ENV_VAR)
-    if env:
-        candidates.append(Path(env))
-    candidates.append(DEFAULT_BINARY)
-    for c in candidates:
-        if c.is_file() and os.access(c, os.X_OK):
-            return c
-    return None
-
-
 def _have_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
 pytestmark = pytest.mark.skipif(
-    _resolve_real_binary() is None or not _have_ffmpeg(),
-    reason="raggers_frame_extract binary or ffmpeg not available",
+    not _have_ffmpeg(),
+    reason="ffmpeg not on PATH (needed to synthesize fixture video)",
 )
 
 
@@ -82,10 +64,7 @@ def _synthesize_fixture_video(out_path: Path) -> None:
     subprocess.run(cmd, check=True, capture_output=True)
 
 
-def test_real_extractor_produces_expected_frames(tmp_path: Path):
-    binary = _resolve_real_binary()
-    assert binary is not None
-
+def test_python_opencv_produces_expected_frames(tmp_path: Path):
     data_dir = tmp_path / "data"
     video_id = "fixture_int"
     video_path = data_dir / "videos" / f"{video_id}.mp4"
@@ -115,7 +94,6 @@ def test_real_extractor_produces_expected_frames(tmp_path: Path):
         video_id=video_id,
         data_dir=data_dir,
         interval_seconds=FIXTURE_INTERVAL_SECONDS,
-        binary_path=binary,
     )
 
     expected_timestamps = [
