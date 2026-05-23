@@ -113,6 +113,7 @@ def fake_openai(monkeypatch):
     """Inject a fake ``openai`` module. Yields the recording transcriptions
     object so tests can configure responses and assert on call kwargs."""
     fake_transcriptions = _FakeTranscriptions()
+    dotenv_calls = []
 
     class _FakeAudio:
         transcriptions = fake_transcriptions
@@ -125,7 +126,17 @@ def fake_openai(monkeypatch):
     fake_module = types.ModuleType("openai")
     fake_module.OpenAI = _FakeOpenAI
     monkeypatch.setitem(sys.modules, "openai", fake_module)
+
+    fake_dotenv = types.ModuleType("dotenv")
+
+    def fake_load_dotenv():
+        dotenv_calls.append(True)
+        return True
+
+    fake_dotenv.load_dotenv = fake_load_dotenv
+    monkeypatch.setitem(sys.modules, "dotenv", fake_dotenv)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    fake_transcriptions.dotenv_calls = dotenv_calls
     return fake_transcriptions
 
 
@@ -165,6 +176,13 @@ def test_openai_request_uses_verbose_json_with_segment_timestamps(
     assert call["model"] == "whisper-1"
     assert call["response_format"] == "verbose_json"
     assert call["timestamp_granularities"] == ["segment"]
+
+
+def test_openai_provider_loads_dotenv_before_reading_api_key(
+    fake_openai, tmp_path: Path
+):
+    OpenAITranscriptionProvider().transcribe(_wav(tmp_path))
+    assert fake_openai.dotenv_calls == [True]
 
 
 def test_openai_language_forwarded_when_set(fake_openai, tmp_path: Path):

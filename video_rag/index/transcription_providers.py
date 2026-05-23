@@ -66,7 +66,8 @@ class OpenAITranscriptionProvider:
 
     The ``openai`` package is imported lazily so the base install does
     not need it; install with ``pip install -e .[transcribe]``.
-    Reads ``OPENAI_API_KEY`` from the environment.
+    Reads ``OPENAI_API_KEY`` from the environment, loading a project ``.env``
+    file first when ``python-dotenv`` is installed.
     """
 
     name = "openai"
@@ -85,6 +86,16 @@ class OpenAITranscriptionProvider:
                 "install the 'transcribe' extra to use the openai provider: "
                 "pip install -e .[transcribe]"
             ) from e
+
+        try:
+            from dotenv import load_dotenv
+        except ImportError as e:
+            raise RuntimeError(
+                "install the 'transcribe' extra to load OPENAI_API_KEY from .env: "
+                "pip install -e .[transcribe]"
+            ) from e
+
+        load_dotenv()
 
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:

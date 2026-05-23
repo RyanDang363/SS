@@ -294,6 +294,45 @@ def test_extract_frames_error_propagates(tmp_path: Path, monkeypatch):
         sf.sample_frames(video_id="lecture_001", data_dir=data_dir, interval_seconds=5)
 
 
+def test_extract_frames_prefers_ffmpeg_for_timestamp_seeking(tmp_path: Path, monkeypatch):
+    video_path = tmp_path / "video.mp4"
+    video_path.write_bytes(b"fake")
+    out_dir = tmp_path / "frames"
+    out_dir.mkdir()
+    calls = []
+
+    monkeypatch.setattr(sf.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(sf, "_read_image_dimensions", lambda path: (1920, 1080))
+
+    def fake_run(cmd, check, capture_output, text):
+        calls.append(cmd)
+        Path(cmd[-1]).write_bytes(b"fake jpg")
+        return object()
+
+    monkeypatch.setattr(sf.subprocess, "run", fake_run)
+
+    records = sf._extract_frames(video_path, out_dir, [30.0], 85)
+
+    assert records == [
+        {
+            "timestamp": 30.0,
+            "frame_path": str(out_dir / "frame_000030.jpg"),
+            "width": 1920,
+            "height": 1080,
+        }
+    ]
+    assert calls[0][:8] == [
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "error",
+        "-ss",
+        "30.000000",
+        "-i",
+        str(video_path),
+    ]
+
+
 def test_video_id_mismatch(tmp_path: Path):
     data_dir = tmp_path / "data"
     _write_video_manifest(data_dir, video_id="lecture_001")

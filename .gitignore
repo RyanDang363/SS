@@ -22,3 +22,8 @@ data/*/*
 !data/*/.gitkeep
 !data/README.md
 
+# env
+.env
+
+# local media inputs
+*.mp4

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -259,6 +261,65 @@ def test_invalid_frames_per_caption_fails_clearly(
         )
 
     assert "positive integer" in str(exc_info.value)
+
+
+def test_caption_frame_group_loads_dotenv_and_uses_api_key(
+    tmp_path: Path,
+    monkeypatch,
+):
+    image = _make_fake_frame(tmp_path / "frame.jpg")
+    dotenv_calls = []
+    client_calls = []
+
+    fake_dotenv = types.ModuleType("dotenv")
+
+    def fake_load_dotenv():
+        dotenv_calls.append(True)
+        return True
+
+    fake_dotenv.load_dotenv = fake_load_dotenv
+    monkeypatch.setitem(sys.modules, "dotenv", fake_dotenv)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class _FakeResponses:
+        def create(self, **kwargs):
+            client_calls.append(kwargs)
+            return types.SimpleNamespace(output_text="A caption.")
+
+    class _FakeOpenAI:
+        def __init__(self, api_key=None):
+            self.api_key = api_key
+            self.responses = _FakeResponses()
+
+    fake_openai = types.ModuleType("openai")
+    fake_openai.OpenAI = _FakeOpenAI
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+    caption = caption_frames_module._caption_frame_group([image])
+
+    assert caption == "A caption."
+    assert dotenv_calls == [True]
+    assert client_calls[0]["model"] == "gpt-4o-mini"
+    assert client_calls[0]["input"][0]["content"][0]["type"] == "input_text"
+
+
+def test_caption_frame_group_missing_api_key_fails(
+    tmp_path: Path,
+    monkeypatch,
+):
+    image = _make_fake_frame(tmp_path / "frame.jpg")
+
+    fake_dotenv = types.ModuleType("dotenv")
+    fake_dotenv.load_dotenv = lambda: True
+    monkeypatch.setitem(sys.modules, "dotenv", fake_dotenv)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    fake_openai = types.ModuleType("openai")
+    fake_openai.OpenAI = object
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY is not set"):
+        caption_frames_module._caption_frame_group([image])
 
 
 def test_cli_success(tmp_path: Path, monkeypatch, capsys):

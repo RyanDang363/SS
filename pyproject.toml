@@ -18,6 +18,10 @@ dev = [
 ]
 transcribe = [
     "openai>=1.0",
+    "python-dotenv>=1.0",
+]
+ocr = [
+    "easyocr>=1.7",
 ]
 
 [project.scripts]

@@ -11,7 +11,9 @@ from __future__ import annotations
 import argparse
 import base64
 import mimetypes
+import os
 import sys
+import time
 from pathlib import Path
 
 from video_rag.io_utils import read_jsonl, write_jsonl
@@ -20,6 +22,7 @@ from video_rag.schemas import FrameSample, VLMCaption
 PathLike = str | Path
 
 DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MAX_RETRIES = 3
 CAPTION_PROMPT = (
     "Describe visible people, slides, diagrams, equations, board writing, "
     "objects, actions, and readable text. Do not guess beyond the images. "
@@ -60,6 +63,18 @@ def _caption_frame_group(
         raise RuntimeError(
             "The openai package is required to run Stage 8 captioning."
         ) from e
+    try:
+        from dotenv import load_dotenv
+    except ImportError as e:
+        raise RuntimeError(
+            "python-dotenv is required to load OPENAI_API_KEY from .env. "
+            "Install with: pip install -e '.[transcribe]'"
+        ) from e
+
+    load_dotenv()
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set; cannot run Stage 8 captioning")
 
     content = [{"type": "input_text", "text": CAPTION_PROMPT}]
     content.extend(
@@ -70,11 +85,19 @@ def _caption_frame_group(
         for frame_path in frame_paths
     )
 
-    client = OpenAI()
-    response = client.responses.create(
-        model=model,
-        input=[{"role": "user", "content": content}],
-    )
+    client = OpenAI(api_key=api_key)
+    for attempt in range(DEFAULT_MAX_RETRIES + 1):
+        try:
+            response = client.responses.create(
+                model=model,
+                input=[{"role": "user", "content": content}],
+            )
+            break
+        except Exception as e:
+            is_rate_limit = e.__class__.__name__ == "RateLimitError"
+            if not is_rate_limit or attempt == DEFAULT_MAX_RETRIES:
+                raise RuntimeError(f"openai captioning failed: {e}") from e
+            time.sleep(1.0 * (attempt + 1))
     return response.output_text
 
 

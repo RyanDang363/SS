@@ -48,6 +48,16 @@ def _parse_fps(value: str | None) -> float | None:
     return numerator / denominator
 
 
+def _parse_positive_float(value: object) -> float | None:
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
 def _find_video_stream(streams: list[dict]) -> dict:
     for stream in streams:
         if stream.get("codec_type") == "video":
@@ -55,11 +65,27 @@ def _find_video_stream(streams: list[dict]) -> dict:
     raise ValueError("ffprobe output did not contain a video stream")
 
 
+def _duration_from_ffprobe_output(raw: dict) -> float | None:
+    duration = _parse_positive_float(raw.get("format", {}).get("duration"))
+    if duration is not None:
+        return duration
+
+    streams = raw.get("streams")
+    if not isinstance(streams, list):
+        return None
+
+    for stream in streams:
+        duration = _parse_positive_float(stream.get("duration"))
+        if duration is not None:
+            return duration
+
+    return None
+
+
 def _metadata_from_ffprobe(video_id: str, raw: dict) -> MediaMetadata:
-    try:
-        duration_seconds = float(raw["format"]["duration"])
-    except (KeyError, TypeError, ValueError) as e:
-        raise ValueError("ffprobe output is missing a valid format.duration") from e
+    duration_seconds = _duration_from_ffprobe_output(raw)
+    if duration_seconds is None:
+        raise ValueError("ffprobe output is missing a valid duration")
 
     streams = raw.get("streams")
     if not isinstance(streams, list):
@@ -91,6 +117,84 @@ def _metadata_from_ffprobe(video_id: str, raw: dict) -> MediaMetadata:
         height=height,
         has_audio=has_audio,
     )
+
+
+def _duration_from_packet_timestamps(raw: dict) -> float | None:
+    packets = raw.get("packets")
+    if not isinstance(packets, list):
+        return None
+
+    latest_end: float | None = None
+    for packet in packets:
+        if not isinstance(packet, dict):
+            continue
+
+        timestamp = _parse_positive_float(packet.get("pts_time"))
+        if timestamp is None:
+            timestamp = _parse_positive_float(packet.get("dts_time"))
+        if timestamp is None:
+            continue
+
+        duration = _parse_positive_float(packet.get("duration_time")) or 0.0
+        packet_end = timestamp + duration
+        latest_end = packet_end if latest_end is None else max(latest_end, packet_end)
+
+    return latest_end
+
+
+def _probe_duration_from_packets(video_path: Path) -> float | None:
+    """Best-effort duration fallback for streams with no container duration."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_packets",
+        "-show_entries",
+        "packet=pts_time,dts_time,duration_time",
+        "-of",
+        "json",
+        str(video_path),
+    ]
+    completed = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    raw = json.loads(completed.stdout)
+    return _duration_from_packet_timestamps(raw)
+
+
+def _probe_duration_by_counting_frames(video_path: Path) -> float | None:
+    """Last-resort duration fallback for streams without usable timestamps."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-count_frames",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=nb_read_frames,avg_frame_rate,r_frame_rate",
+        "-of",
+        "json",
+        str(video_path),
+    ]
+    completed = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    raw = json.loads(completed.stdout)
+    streams = raw.get("streams")
+    if not isinstance(streams, list) or not streams:
+        return None
+
+    stream = streams[0]
+    try:
+        frame_count = int(stream["nb_read_frames"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    fps = _parse_fps(stream.get("avg_frame_rate"))
+    if fps is None:
+        fps = _parse_fps(stream.get("r_frame_rate"))
+    if fps is None:
+        return None
+
+    duration = frame_count / fps
+    return duration if duration > 0 else None
 
 
 def probe_media(
@@ -142,6 +246,16 @@ def probe_media(
         raw = json.loads(completed.stdout)
     except json.JSONDecodeError as e:
         raise ValueError(f"ffprobe returned invalid JSON: {e.msg}") from e
+
+    if _duration_from_ffprobe_output(raw) is None:
+        try:
+            fallback_duration = _probe_duration_from_packets(video_path)
+            if fallback_duration is None:
+                fallback_duration = _probe_duration_by_counting_frames(video_path)
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+            raise ValueError("ffprobe output is missing a valid duration") from e
+        if fallback_duration is not None:
+            raw.setdefault("format", {})["duration"] = str(fallback_duration)
 
     metadata = _metadata_from_ffprobe(video_id, raw)
     write_json(media_metadata_path, metadata)

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -82,7 +83,70 @@ def _to_repo_relative(absolute: Path, repo_root: Path) -> str:
     return rel.as_posix()
 
 
-def _extract_frames(
+def _read_image_dimensions(path: Path) -> tuple[int, int]:
+    image = cv2.imread(str(path))
+    if image is None or image.size == 0:
+        raise RuntimeError(f"failed to read extracted JPEG at {path}")
+    h, w = image.shape[:2]
+    return w, h
+
+
+def _extract_frames_with_ffmpeg(
+    video_path: Path,
+    out_dir: Path,
+    timestamps: list[float],
+    jpeg_quality: int,
+) -> list[dict]:
+    """Extract timestamped frames with ffmpeg.
+
+    OpenCV timestamp seeking can land on the wrong frames for some
+    WebM/Matroska-style recordings with irregular packet timestamps. ffmpeg's
+    timestamp seek is more reliable for those files, so prefer it when present.
+    """
+    records: list[dict] = []
+    qscale = max(2, min(31, round((100 - jpeg_quality) / 4) + 2))
+
+    for ts in timestamps:
+        out_path = out_dir / f"frame_{int(round(ts)):06d}.jpg"
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{ts:.6f}",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-q:v",
+            str(qscale),
+            str(out_path),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            stderr = e.stderr.strip() if e.stderr else "no stderr output"
+            raise RuntimeError(
+                f"ffmpeg failed to extract frame at {ts}s from {video_path}:\n{stderr}"
+            ) from e
+
+        if not out_path.is_file():
+            raise RuntimeError(f"ffmpeg did not write expected JPEG to {out_path}")
+        width, height = _read_image_dimensions(out_path)
+        records.append(
+            {
+                "timestamp": ts,
+                "frame_path": str(out_path),
+                "width": width,
+                "height": height,
+            }
+        )
+
+    return records
+
+
+def _extract_frames_with_opencv(
     video_path: Path,
     out_dir: Path,
     timestamps: list[float],
@@ -131,6 +195,28 @@ def _extract_frames(
         cap.release()
 
     return records
+
+
+def _extract_frames(
+    video_path: Path,
+    out_dir: Path,
+    timestamps: list[float],
+    jpeg_quality: int,
+) -> list[dict]:
+    """Extract timestamped frames, preferring ffmpeg for reliable seeking."""
+    if shutil.which("ffmpeg") is not None:
+        return _extract_frames_with_ffmpeg(
+            video_path=video_path,
+            out_dir=out_dir,
+            timestamps=timestamps,
+            jpeg_quality=jpeg_quality,
+        )
+    return _extract_frames_with_opencv(
+        video_path=video_path,
+        out_dir=out_dir,
+        timestamps=timestamps,
+        jpeg_quality=jpeg_quality,
+    )
 
 
 def sample_frames(

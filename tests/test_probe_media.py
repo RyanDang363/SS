@@ -138,6 +138,140 @@ def test_probe_media_video_with_no_audio_stream(tmp_path: Path, monkeypatch):
     assert metadata.has_audio is False
 
 
+def test_probe_media_falls_back_to_packet_timestamps_when_duration_missing(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    data_dir = tmp_path / "data"
+    video_path = _make_fake_video(data_dir / "videos" / "lecture_001.mp4")
+    _write_manifest(data_dir)
+    calls = []
+
+    def fake_run(cmd, check, capture_output, text):
+        calls.append(cmd)
+        if "-show_packets" in cmd:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=json.dumps(
+                    {
+                        "packets": [
+                            {"pts_time": "0.000000", "duration_time": "0.040000"},
+                            {"pts_time": "60.924000", "duration_time": "0.040000"},
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=json.dumps(
+                {
+                    "format": {},
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "width": 1920,
+                            "height": 1080,
+                            "avg_frame_rate": "0/0",
+                            "r_frame_rate": "25/1",
+                        },
+                        {"codec_type": "audio"},
+                    ],
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(probe_media_module.subprocess, "run", fake_run)
+
+    metadata = probe_media("lecture_001", data_dir=data_dir)
+
+    assert metadata.duration_seconds == pytest.approx(60.964)
+    assert metadata.fps == 25.0
+    assert metadata.width == 1920
+    assert metadata.height == 1080
+    assert metadata.has_audio is True
+    assert calls[-1] == [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_packets",
+        "-show_entries",
+        "packet=pts_time,dts_time,duration_time",
+        "-of",
+        "json",
+        str(video_path),
+    ]
+
+
+def test_probe_media_falls_back_to_counted_frames_when_timestamps_are_missing(
+    tmp_path: Path,
+    monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    data_dir = tmp_path / "data"
+    _make_fake_video(data_dir / "videos" / "lecture_001.mp4")
+    _write_manifest(data_dir)
+    calls = []
+
+    def fake_run(cmd, check, capture_output, text):
+        calls.append(cmd)
+        if "-show_packets" in cmd:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=json.dumps({"packets": []}),
+                stderr="",
+            )
+        if "-count_frames" in cmd:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=json.dumps(
+                    {
+                        "streams": [
+                            {
+                                "nb_read_frames": "1173",
+                                "avg_frame_rate": "0/0",
+                                "r_frame_rate": "25/1",
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            stdout=json.dumps(
+                {
+                    "format": {},
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "width": 1920,
+                            "height": 1080,
+                            "avg_frame_rate": "0/0",
+                            "r_frame_rate": "25/1",
+                        }
+                    ],
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(probe_media_module.subprocess, "run", fake_run)
+
+    metadata = probe_media("lecture_001", data_dir=data_dir)
+
+    assert metadata.duration_seconds == pytest.approx(1173 / 25)
+    assert any("-show_packets" in cmd for cmd in calls)
+    assert any("-count_frames" in cmd for cmd in calls)
+
+
 @pytest.mark.parametrize(
     "raw, expected",
     [
