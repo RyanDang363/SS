@@ -1,2 +1,16 @@
+# System dependency required outside pip:
+#   brew install ffmpeg
+
+# Core runtime
 pydantic>=2.0
+opencv-python-headless>=4.0
+
+# OpenAI-backed transcription and VLM captions
+openai>=1.0
+python-dotenv>=1.0
+
+# OCR
+easyocr>=1.7
+
+# Tests
 pytest>=7
