@@ -358,7 +358,7 @@ def test_cli_success(tmp_path: Path, monkeypatch, capsys):
     expected_path = tmp_path / "data" / "captions" / "lecture_001.jsonl"
     assert exit_code == 0
     assert "Wrote frame captions:" in captured.out
-    assert str(expected_path) in captured.out
+    assert expected_path.as_posix() in captured.out
 
 
 def test_cli_failure(tmp_path: Path, capsys):
