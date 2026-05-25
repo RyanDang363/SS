@@ -28,6 +28,7 @@ ocr = [
 raggers-validate = "video_rag.validate:main"
 raggers-sample-frames = "video_rag.index.sample_frames:main"
 raggers-transcribe = "video_rag.index.transcribe_audio:main"
+raggers-index = "video_rag.index.run_pipeline:main"
 
 [tool.setuptools.packages.find]
 include = ["video_rag*"]
