@@ -365,13 +365,50 @@ default model is `gpt-4o-mini`. It does not OCR, chunk, embed, retrieve, answer
 questions, or modify frame manifests, OCR outputs, or video manifests.
 Query-aware captioning is a future retrieval-time enhancement.
 
+## Stage 13: Index Validation
+
+**Implemented.** Module: [`video_rag/index/validate_index.py`](../video_rag/index/validate_index.py).
+
+Inputs:
+
+- `data/manifests/{video_id}/video_manifest.json`
+- `data/manifests/{video_id}/media_metadata.json`
+- `data/transcripts/{video_id}.jsonl`
+- `data/chunks/{video_id}_{chunk_seconds}s_enriched.jsonl`
+- `data/embeddings/{video_id}_{chunk_seconds}s_{variant}.jsonl`
+- `data/indexes/{video_id}_{chunk_seconds}s_{variant}/`
+
+Optional inputs:
+
+- `data/frames/{video_id}/frame_manifest.jsonl`
+- `data/ocr/{video_id}.jsonl`
+- `data/captions/{video_id}.jsonl`
+
+Output:
+
+- `data/validation/{video_id}_{chunk_seconds}s_{variant}_validation.json`
+
+This stage inspects existing artifacts only. It does not create transcripts,
+chunks, embeddings, or indexes. It reports errors and warnings; `status` is
+`passed` only when there are no errors. Retrieval/querying begins after
+successful index validation.
+
+CLI:
+
+```bash
+python -m video_rag.index.validate_index \
+  --video-id lecture_001 \
+  --chunk-seconds 30 \
+  --variant transcript_ocr_vlm
+```
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- `Chunk`, `Embedding`, retrieval results, answer payloads.
+- retrieval results, answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.
