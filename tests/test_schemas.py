@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from video_rag.schemas import (
+    Chunk,
     FrameSample,
     MediaMetadata,
     OCRResult,
@@ -342,3 +343,42 @@ def test_transcript_segment_end_not_after_start_fails(start_time, end_time):
 def test_transcript_segment_empty_or_whitespace_text_fails(text):
     with pytest.raises(ValidationError):
         TranscriptSegment(video_id="v", start_time=0.0, end_time=1.0, text=text)
+
+
+# --- Chunk -------------------------------------------------------------------
+
+
+def test_chunk_valid_and_preserves_extra_metadata():
+    chunk = Chunk.model_validate(
+        {
+            "chunk_id": "lecture_001_chunk_0000",
+            "video_id": "lecture_001",
+            "chunk_index": 0,
+            "start_time": 0.0,
+            "end_time": 30.0,
+            "transcript_text": "Hello.",
+            "ocr_text": "",
+            "vlm_caption": None,
+            "frame_paths": [],
+            "chunk_seconds": 30.0,
+            "overlap_seconds": 0.0,
+            "chunking_strategy": "fixed",
+            "source_metadata": {"course": "stats"},
+        }
+    )
+
+    dumped = chunk.model_dump(mode="json")
+    assert dumped["source_metadata"] == {"course": "stats"}
+
+
+def test_chunk_end_time_must_be_after_start_time():
+    with pytest.raises(ValidationError):
+        Chunk(
+            chunk_id="lecture_001_chunk_0000",
+            video_id="lecture_001",
+            chunk_index=0,
+            start_time=30.0,
+            end_time=30.0,
+            chunk_seconds=30.0,
+            chunking_strategy="fixed",
+        )

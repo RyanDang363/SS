@@ -365,13 +365,40 @@ default model is `gpt-4o-mini`. It does not OCR, chunk, embed, retrieve, answer
 questions, or modify frame manifests, OCR outputs, or video manifests.
 Query-aware captioning is a future retrieval-time enhancement.
 
+## Stage 10: Search Text Construction
+
+**Implemented.** Module: [`video_rag/index/build_search_text.py`](../video_rag/index/build_search_text.py).
+
+Input:
+
+- `data/chunks/{video_id}_{chunk_seconds}s.jsonl`
+
+Output:
+
+- `data/chunks/{video_id}_{chunk_seconds}s_enriched.jsonl`
+
+This stage reads Stage 9 timestamped chunks and adds search-text variants for
+retrieval experiments. Variants are transcript_only, transcript_ocr,
+transcript_vlm, and transcript_ocr_vlm. It preserves chunk timing, frame
+paths, and original metadata. It does not embed, store vectors, retrieve,
+rerank, answer, or modify Stage 9 chunk timing or artifact paths. Embedding
+happens in Stage 11.
+
+CLI:
+
+```bash
+python -m video_rag.index.build_search_text \
+  --video-id lecture_001 \
+  --chunk-seconds 30
+```
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- `Chunk`, `Embedding`, retrieval results, answer payloads.
+- `Embedding`, retrieval results, answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.
