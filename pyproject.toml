@@ -15,6 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7",
+    "chromadb>=0.5",
 ]
 transcribe = [
     "openai>=1.0",
@@ -23,12 +24,16 @@ transcribe = [
 ocr = [
     "easyocr>=1.7",
 ]
+vectorstore = [
+    "chromadb>=0.5",
+]
 
 [project.scripts]
 raggers-validate = "video_rag.validate:main"
 raggers-sample-frames = "video_rag.index.sample_frames:main"
 raggers-transcribe = "video_rag.index.transcribe_audio:main"
 raggers-index = "video_rag.index.run_pipeline:main"
+raggers-store-vectors = "video_rag.index.store_vectors:main"
 
 [tool.setuptools.packages.find]
 include = ["video_rag*"]

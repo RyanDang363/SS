@@ -110,3 +110,74 @@ class OCRResult(BaseModel):
     frame_path: str = Field(min_length=1)
     ocr_text: str
     confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class Chunk(BaseModel):
+    """A timestamped retrieval unit produced by Stage 9."""
+
+    model_config = ConfigDict(extra="allow")
+
+    chunk_id: str = Field(min_length=1)
+    video_id: str = Field(min_length=1)
+    chunk_index: int = Field(ge=0)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+    transcript_text: str | None = None
+    ocr_text: str | None = None
+    vlm_caption: str | None = None
+    frame_paths: list[str] = Field(default_factory=list)
+    chunk_seconds: float = Field(gt=0)
+    overlap_seconds: float = Field(default=0.0, ge=0)
+    chunking_strategy: str = Field(min_length=1)
+    combined_text_transcript_only: str | None = None
+    combined_text_transcript_ocr: str | None = None
+    combined_text_transcript_vlm: str | None = None
+    combined_text_all: str | None = None
+    combined_text: str | None = None
+
+    @model_validator(mode="after")
+    def _check_chunk(self) -> "Chunk":
+        if self.end_time <= self.start_time:
+            raise ValueError(
+                f"end_time ({self.end_time}) must be greater than "
+                f"start_time ({self.start_time})"
+            )
+        return self
+
+
+class EmbeddingRecord(BaseModel):
+    """A vector embedding for one enriched chunk, produced by Stage 11."""
+
+    model_config = ConfigDict(extra="allow")
+
+    chunk_id: str = Field(min_length=1)
+    video_id: str = Field(min_length=1)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+    embedding_model: str = Field(min_length=1)
+    embedding_variant: str = Field(min_length=1)
+    vector: list[float] = Field(min_length=1)
+    vector_dim: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _check_embedding(self) -> "EmbeddingRecord":
+        if self.end_time <= self.start_time:
+            raise ValueError(
+                f"end_time ({self.end_time}) must be greater than "
+                f"start_time ({self.start_time})"
+            )
+        return self
+
+
+class VectorStoreManifest(BaseModel):
+    """Manifest for a persisted local vector index, produced by Stage 12."""
+
+    model_config = ConfigDict(extra="allow")
+
+    video_id: str = Field(min_length=1)
+    chunk_seconds: float = Field(gt=0)
+    embedding_variant: str = Field(min_length=1)
+    backend: str | None = None
+    index_path: str | None = None
+    num_vectors: int = Field(ge=0)
+    vector_dim: int | None = Field(default=None, gt=0)
