@@ -110,3 +110,43 @@ class OCRResult(BaseModel):
     frame_path: str = Field(min_length=1)
     ocr_text: str
     confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class Chunk(BaseModel):
+    """A fixed-time retrieval unit aligning all modalities on a shared timeline.
+
+    Written by Stage 9 to
+    ``data/chunks/{video_id}_{chunk_seconds}s.jsonl``. Each chunk covers one
+    fixed time window of the video and gathers the transcript, OCR, VLM caption,
+    and frame evidence that falls within that window. This is custom timestamp
+    alignment across modalities, not text-splitter document chunking.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_id: str = Field(min_length=1)
+    video_id: str = Field(min_length=1)
+    chunk_index: int = Field(ge=0)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+    transcript_text: str = ""
+    ocr_text: str = ""
+    vlm_caption: str = ""
+    frame_paths: list[str] = Field(default_factory=list)
+    chunk_seconds: float = Field(gt=0)
+    overlap_seconds: float = Field(default=0.0, ge=0)
+    chunking_strategy: Literal["fixed"] = "fixed"
+
+    @model_validator(mode="after")
+    def _check_chunk(self) -> "Chunk":
+        if self.end_time <= self.start_time:
+            raise ValueError(
+                f"end_time ({self.end_time}) must be greater than "
+                f"start_time ({self.start_time})"
+            )
+        if self.overlap_seconds >= self.chunk_seconds:
+            raise ValueError(
+                f"overlap_seconds ({self.overlap_seconds}) must be less than "
+                f"chunk_seconds ({self.chunk_seconds})"
+            )
+        return self

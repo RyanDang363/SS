@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from video_rag.schemas import (
+    Chunk,
     FrameSample,
     MediaMetadata,
     OCRResult,
@@ -342,3 +343,93 @@ def test_transcript_segment_end_not_after_start_fails(start_time, end_time):
 def test_transcript_segment_empty_or_whitespace_text_fails(text):
     with pytest.raises(ValidationError):
         TranscriptSegment(video_id="v", start_time=0.0, end_time=1.0, text=text)
+
+
+# --- Chunk -------------------------------------------------------------------
+
+
+def _chunk(**overrides) -> Chunk:
+    base = dict(
+        chunk_id="lecture_001_chunk_0007",
+        video_id="lecture_001",
+        chunk_index=7,
+        start_time=210.0,
+        end_time=240.0,
+        chunk_seconds=30.0,
+    )
+    base.update(overrides)
+    return Chunk(**base)
+
+
+def test_chunk_valid_minimal_defaults():
+    c = _chunk()
+    assert c.transcript_text == ""
+    assert c.ocr_text == ""
+    assert c.vlm_caption == ""
+    assert c.frame_paths == []
+    assert c.overlap_seconds == 0.0
+    assert c.chunking_strategy == "fixed"
+
+
+def test_chunk_empty_chunk_id_fails():
+    with pytest.raises(ValidationError):
+        _chunk(chunk_id="")
+
+
+def test_chunk_empty_video_id_fails():
+    with pytest.raises(ValidationError):
+        _chunk(video_id="")
+
+
+def test_chunk_negative_index_fails():
+    with pytest.raises(ValidationError):
+        _chunk(chunk_index=-1)
+
+
+@pytest.mark.parametrize("start_time", [-0.1, -1.0])
+def test_chunk_negative_start_time_fails(start_time):
+    with pytest.raises(ValidationError):
+        _chunk(start_time=start_time, end_time=10.0)
+
+
+@pytest.mark.parametrize("start_time, end_time", [(10.0, 10.0), (20.0, 15.0)])
+def test_chunk_end_not_after_start_fails(start_time, end_time):
+    with pytest.raises(ValidationError):
+        _chunk(start_time=start_time, end_time=end_time)
+
+
+@pytest.mark.parametrize("chunk_seconds", [0, -1])
+def test_chunk_nonpositive_chunk_seconds_fails(chunk_seconds):
+    with pytest.raises(ValidationError):
+        _chunk(chunk_seconds=chunk_seconds)
+
+
+def test_chunk_negative_overlap_fails():
+    with pytest.raises(ValidationError):
+        _chunk(overlap_seconds=-1.0)
+
+
+@pytest.mark.parametrize("overlap_seconds", [30.0, 45.0])
+def test_chunk_overlap_not_less_than_chunk_seconds_fails(overlap_seconds):
+    with pytest.raises(ValidationError):
+        _chunk(chunk_seconds=30.0, overlap_seconds=overlap_seconds)
+
+
+def test_chunk_non_fixed_strategy_fails():
+    with pytest.raises(ValidationError):
+        _chunk(chunking_strategy="semantic")
+
+
+def test_chunk_extra_field_forbidden():
+    with pytest.raises(ValidationError):
+        _chunk(speaker="alice")
+
+
+def test_chunk_round_trip():
+    c = _chunk(
+        transcript_text="Bayes theorem.",
+        ocr_text="P(A|B)",
+        vlm_caption="A slide.",
+        frame_paths=["data/frames/lecture_001/frame_000225.jpg"],
+    )
+    assert Chunk.model_validate(c.model_dump(mode="json")) == c
