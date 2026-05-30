@@ -110,3 +110,48 @@ class OCRResult(BaseModel):
     frame_path: str = Field(min_length=1)
     ocr_text: str
     confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+EmbeddingVariant = Literal[
+    "transcript_only",
+    "transcript_ocr",
+    "transcript_vlm",
+    "transcript_ocr_vlm",
+]
+"""Which enriched search-text field a vector was built from (Stage 11)."""
+
+
+class EmbeddingRecord(BaseModel):
+    """One embedded chunk produced by Stage 11.
+
+    Written as JSONL — one record per line — to
+    ``data/embeddings/{video_id}_{chunk_seconds}s_{variant}.jsonl``. Each record
+    carries the vector plus the chunk metadata needed to recover timestamped
+    evidence in later stages. Stage 12 stores these vectors in a vector index.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_id: str = Field(min_length=1)
+    video_id: str = Field(min_length=1)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+    embedding_model: str = Field(min_length=1)
+    embedding_provider: str = Field(min_length=1)
+    embedding_variant: EmbeddingVariant
+    vector: list[float] = Field(min_length=1)
+    vector_dim: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _check_record(self) -> "EmbeddingRecord":
+        if self.end_time <= self.start_time:
+            raise ValueError(
+                f"end_time ({self.end_time}) must be greater than "
+                f"start_time ({self.start_time})"
+            )
+        if self.vector_dim != len(self.vector):
+            raise ValueError(
+                f"vector_dim ({self.vector_dim}) must equal len(vector) "
+                f"({len(self.vector)})"
+            )
+        return self

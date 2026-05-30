@@ -365,13 +365,95 @@ default model is `gpt-4o-mini`. It does not OCR, chunk, embed, retrieve, answer
 questions, or modify frame manifests, OCR outputs, or video manifests.
 Query-aware captioning is a future retrieval-time enhancement.
 
+## Stage 11: Embedding
+
+**Implemented.** Module: [`video_rag/index/embed_chunks.py`](../video_rag/index/embed_chunks.py).
+
+Input:
+
+- `data/chunks/{video_id}_{chunk_seconds}s_enriched.jsonl` (Stage 10 enriched
+  chunks; Stage 9 chunking + Stage 10 enrichment produce it).
+
+Output:
+
+- `data/embeddings/{video_id}_{chunk_seconds}s_{variant}.jsonl` containing one
+  `EmbeddingRecord` per embedded chunk — e.g.
+  `data/embeddings/lecture_001_30s_transcript_ocr_vlm.jsonl`.
+
+This stage selects one search-text variant from each enriched chunk, embeds that
+text through a provider, and writes embedding records. It does **not** build
+searchable text (Stage 10), store vectors in a vector DB / Chroma (Stage 12),
+retrieve, rerank, answer questions, or evaluate.
+
+### `EmbeddingRecord`
+
+| Field                | Type             | Required | Notes                                                        |
+| -------------------- | ---------------- | -------- | ------------------------------------------------------------ |
+| `chunk_id`           | `str`            | yes      | Non-empty; joins back to the source chunk.                   |
+| `video_id`           | `str`            | yes      | Non-empty; joins to manifest.                                |
+| `start_time`         | `float`          | yes      | Seconds; `>= 0`.                                             |
+| `end_time`           | `float`          | yes      | Seconds; `> start_time`.                                     |
+| `embedding_model`    | `str`            | yes      | Non-empty; model used (e.g. `text-embedding-3-small`).       |
+| `embedding_provider` | `str`            | yes      | Non-empty; provider name (`mock` / `openai`).                |
+| `embedding_variant`  | `str`            | yes      | One of the four supported variants below.                    |
+| `vector`             | `list[float]`    | yes      | Non-empty embedding vector.                                  |
+| `vector_dim`         | `int`            | yes      | `> 0` and must equal `len(vector)`.                          |
+
+### Supported variants
+
+Each variant reads one pre-joined field from the enriched chunk:
+
+| Variant              | Enriched source field             |
+| -------------------- | --------------------------------- |
+| `transcript_only`    | `combined_text_transcript_only`   |
+| `transcript_ocr`     | `combined_text_transcript_ocr`    |
+| `transcript_vlm`     | `combined_text_transcript_vlm`    |
+| `transcript_ocr_vlm` | `combined_text_all`               |
+
+An unknown variant fails clearly. If the selected field is **absent** from the
+records, the stage fails clearly. If the field is **present but empty/whitespace**
+for a chunk, that chunk is skipped with a warning and simply produces no
+embedding record; Stage 13 validation reports skipped/missing embeddings later.
+
+### Provider strategy
+
+Embedding is delegated to a provider adapter (see
+[`video_rag/index/embedding_providers.py`](../video_rag/index/embedding_providers.py)),
+mirroring Stage 4's transcription providers:
+
+- **`mock`** — deterministic, offline, configurable small dimension. **Tests and
+  smoke checks only** — never use it on real artifacts.
+- **`openai`** — real provider via the OpenAI embeddings API (default
+  `text-embedding-3-small`, 1536-dim). Lazy-imports `openai` and reads
+  `OPENAI_API_KEY` from the environment, so importing the stage and running the
+  mock tests never require the dependency or a key. Install with
+  `pip install -e .[embed]`.
+
+CLI:
+
+```bash
+python -m video_rag.index.embed_chunks \
+  --video-id lecture_001 \
+  --chunk-seconds 30 \
+  --variant transcript_ocr_vlm \
+  --provider openai
+```
+
+`--provider` is **required**: there is no default, so a mock embedding can never
+be produced by accident. Optional flags: `--data-dir` (default `data`),
+`--model` (default `text-embedding-3-small`, openai only), `--batch-size`
+(default `64`), `--overwrite` (replaces only the target embedding file). A console
+script `raggers-embed` is installed as an alias. Vectors are written atomically
+(`*.jsonl.tmp` + `os.replace`) in deterministic input-chunk order. **Vector
+storage into a vector index happens in Stage 12.**
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- `Chunk`, `Embedding`, retrieval results, answer payloads.
+- vector store manifests, retrieval results, answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.
@@ -380,8 +462,8 @@ here.
 
 The artifact folder layout is documented in [`../data/README.md`](../data/README.md).
 Implemented stages write to `data/videos/`, `data/manifests/`, `data/audio/`,
-`data/transcripts/`, `data/frames/`, `data/ocr/`, `data/captions/`, and
-`data/validation/`; other folders are placeholders.
+`data/transcripts/`, `data/frames/`, `data/ocr/`, `data/captions/`,
+`data/embeddings/`, and `data/validation/`; other folders are placeholders.
 
 ## Validating artifacts
 
