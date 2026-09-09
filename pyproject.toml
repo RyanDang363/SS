@@ -25,6 +25,10 @@ embed = [
     "openai>=1.0",
     "python-dotenv>=1.0",
 ]
+answer = [
+    "openai>=1.0",
+    "python-dotenv>=1.0",
+]
 ocr = [
     "easyocr>=1.7",
 ]
@@ -40,6 +44,7 @@ raggers-embed = "video_rag.index.embed_chunks:main"
 raggers-index = "video_rag.index.run_pipeline:main"
 raggers-store-vectors = "video_rag.index.store_vectors:main"
 raggers-retrieve = "video_rag.search.retrieve:main"
+raggers-answer = "video_rag.search.answer:main"
 
 [tool.setuptools.packages.find]
 include = ["video_rag*"]

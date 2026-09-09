@@ -241,3 +241,38 @@ class RetrievalResult(BaseModel):
                 f"start_time ({self.start_time})"
             )
         return self
+
+
+class AnswerCitation(BaseModel):
+    """One timestamped chunk citation supporting an answer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_id: str = Field(min_length=1)
+    video_id: str = Field(min_length=1)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+    frame_paths: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_citation(self) -> "AnswerCitation":
+        if self.end_time <= self.start_time:
+            raise ValueError(
+                f"end_time ({self.end_time}) must be greater than "
+                f"start_time ({self.start_time})"
+            )
+        return self
+
+
+class AnswerResult(BaseModel):
+    """Grounded answer generated from retrieved video evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    video_id: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    answer: str = Field(min_length=1)
+    citations: list[AnswerCitation] = Field(default_factory=list)
+    retrieval_results: list[RetrievalResult] = Field(default_factory=list)
+    model: str = Field(min_length=1)
+    provider: str = Field(min_length=1)

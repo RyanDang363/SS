@@ -207,6 +207,12 @@ Branch name:
 stage-16-grounded-answering
 ```
 
+Status:
+
+```text
+In progress on the current branch.
+```
+
 Goal:
 
 Generate answers from retrieved chunks with timestamp citations.
@@ -405,14 +411,14 @@ After the hosted demo works, harden the system:
 
 ## Immediate Next Step
 
-After merging `stage-15-retrieval`, start:
+After merging `stage-16-grounded-answering`, start:
 
 ```bash
-git checkout -b stage-16-grounded-answering
+git checkout -b stage-17-api-server
 ```
 
-Then implement Stage C.
+Then implement Stage D.
 
-This is the right next branch because retrieval returns timestamped evidence,
-and the next product capability is turning that evidence into grounded answers
-with citations.
+This is the right next branch because the core local RAG flow will be complete:
+indexing, retrieval, and grounded answers. The next product capability is
+exposing that flow through upload, job status, search, and answer endpoints.

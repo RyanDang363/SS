@@ -230,6 +230,33 @@ One query-time retrieval hit from a searchable video index. Returned by Stage
 | `combined_text`   | `str?`      | no       | Search text or stored vector document.     |
 | `frame_paths`     | `list[str]` | yes      | Frame evidence paths, if chunk data exists. |
 
+### `AnswerResult`
+
+Grounded answer generated from retrieval results. Returned by Stage 16 answer
+generation, not written as a long-lived indexing artifact.
+
+| Field               | Type                    | Required | Notes                                  |
+| ------------------- | ----------------------- | -------- | -------------------------------------- |
+| `video_id`          | `str`                   | yes      | Non-empty; joins to manifest.          |
+| `question`          | `str`                   | yes      | User question.                         |
+| `answer`            | `str`                   | yes      | Grounded natural-language answer.      |
+| `citations`         | `list[AnswerCitation]`  | yes      | Timestamped chunk citations.           |
+| `retrieval_results` | `list[RetrievalResult]` | yes      | Evidence used to generate the answer.  |
+| `model`             | `str`                   | yes      | Answer model.                          |
+| `provider`          | `str`                   | yes      | Answer provider.                       |
+
+### `AnswerCitation`
+
+Timestamped citation extracted from a retrieval result.
+
+| Field         | Type        | Required | Notes                            |
+| ------------- | ----------- | -------- | -------------------------------- |
+| `chunk_id`    | `str`       | yes      | Cited source chunk.              |
+| `video_id`    | `str`       | yes      | Non-empty; joins to manifest.    |
+| `start_time`  | `float`     | yes      | Seconds; `>= 0`.                 |
+| `end_time`    | `float`     | yes      | Seconds; `> start_time`.         |
+| `frame_paths` | `list[str]` | yes      | Frame evidence paths, if known.  |
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -704,13 +731,51 @@ python -m video_rag.search.retrieve \
   --top-k 5
 ```
 
+## Stage 16: Grounded Answering
+
+**Implemented.** Module: [`video_rag/search/answer.py`](../video_rag/search/answer.py).
+
+Inputs:
+
+- user question text
+- retrieval results from Stage 15, or enough index parameters to run retrieval
+
+Output:
+
+- an `AnswerResult` containing the answer, citations, retrieval evidence,
+  provider name, and model name.
+
+This stage formats retrieved multimodal evidence into labeled context, asks an
+answer provider to answer only from that evidence, and returns timestamped
+citations. It does not upload videos, run indexing jobs, host an API, or serve a
+frontend. Those product surfaces begin in Stage 17.
+
+Provider strategy:
+
+- **`mock`** — deterministic, offline, tests and smoke checks only.
+- **`openai`** — real provider via the OpenAI Responses API. Lazy-imports
+  `openai` and reads `OPENAI_API_KEY` from the environment. Install with
+  `pip install -e .[answer]`.
+
+CLI:
+
+```bash
+python -m video_rag.search.answer \
+  --video-id lecture_001 \
+  --question "What formula was shown for Bayes theorem?" \
+  --retrieval-provider openai \
+  --answer-provider openai \
+  --variant transcript_ocr_vlm \
+  --top-k 5
+```
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- answer payloads.
+- API request/response payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.
