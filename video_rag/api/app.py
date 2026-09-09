@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -367,9 +368,22 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="video_rag.api.app",
         description="Run the RAGGERS FastAPI server.",
     )
-    p.add_argument("--host", default="127.0.0.1", help="Bind host.")
-    p.add_argument("--port", type=int, default=8000, help="Bind port.")
-    p.add_argument("--data-dir", default="data", help="Artifact root.")
+    p.add_argument(
+        "--host",
+        default=os.environ.get("HOST", "127.0.0.1"),
+        help="Bind host.",
+    )
+    p.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PORT", "8000")),
+        help="Bind port.",
+    )
+    p.add_argument(
+        "--data-dir",
+        default=os.environ.get("DATA_DIR", "data"),
+        help="Artifact root.",
+    )
     return p
 
 

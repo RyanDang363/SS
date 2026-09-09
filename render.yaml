@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: raggers
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: raggers-data
+      mountPath: /app/data
+      sizeGB: 10
+    envVars:
+      - key: DATA_DIR
+        value: /app/data
+      - key: HOST
+        value: 0.0.0.0
+      - key: OPENAI_API_KEY
+        sync: false

@@ -335,7 +335,7 @@ Build a usable web UI for upload, indexing progress, and question answering.
 Status:
 
 ```text
-In progress on the current branch.
+Complete and merged into main.
 ```
 
 Core screens:
@@ -374,6 +374,12 @@ stage-19-deploy
 Goal:
 
 Deploy the app so it is usable from a browser.
+
+Status:
+
+```text
+Complete on the current branch.
+```
 
 V0 hosting options:
 
@@ -429,14 +435,14 @@ After the hosted demo works, harden the system:
 
 ## Immediate Next Step
 
-After merging `stage-18-hosted-ui`, start:
+After merging `stage-19-deploy`, start:
 
 ```bash
-git checkout -b stage-19-deploy
+git checkout -b stage-20-production-hardening
 ```
 
-Then implement Stage F.
+Then implement Stage G.
 
-This is the right next branch because the backend and browser UI will exist.
-The next product capability is packaging that app for a hosted runtime with
-`ffmpeg`, persistent `data/`, and provider environment variables.
+This is the right next branch because the app will be packaged for hosting.
+The next product capability is hardening the demo for repeated uploads, safer
+long-running jobs, and multi-user or project isolation.
