@@ -1,4 +1,4 @@
-# RAGGERS
+# RAG Motion
 
 RAGGERS is a staged video RAG project for uploading a video, transcribing it,
 building multimodal retrieval artifacts, searching timestamped evidence, and
