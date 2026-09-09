@@ -180,6 +180,38 @@ alignment across modalities, not text-splitter document chunking.
 | `overlap_seconds`   | `float`             | yes      | `>= 0` and `< chunk_seconds`. Defaults to `0`.              |
 | `chunking_strategy` | `Literal["fixed"]`  | yes      | `"fixed"` for the MVP.                                       |
 
+### `EmbeddingRecord`
+
+One vector embedding for an enriched chunk, written by Stage 11 to
+`data/embeddings/{video_id}_{chunk_seconds}s_{variant}.jsonl`.
+
+| Field                | Type          | Required | Notes                                   |
+| -------------------- | ------------- | -------- | --------------------------------------- |
+| `chunk_id`           | `str`         | yes      | Joins to enriched chunk records.        |
+| `video_id`           | `str`         | yes      | Non-empty; joins to manifest.           |
+| `start_time`         | `float`       | yes      | Seconds; `>= 0`.                        |
+| `end_time`           | `float`       | yes      | Seconds; `> start_time`.                |
+| `embedding_model`    | `str`         | yes      | Model used to produce the vector.       |
+| `embedding_provider` | `str`         | yes      | Provider used to produce the vector.    |
+| `embedding_variant`  | `str`         | yes      | Search-text variant embedded.           |
+| `vector`             | `list[float]` | yes      | Non-empty embedding vector.             |
+| `vector_dim`         | `int`         | yes      | `> 0` and must equal `len(vector)`.     |
+
+### `VectorStoreManifest`
+
+Manifest for a persisted local vector index, written by Stage 12 to
+`data/indexes/{video_id}_{chunk_seconds}s_{variant}/vector_store_manifest.json`.
+
+| Field               | Type    | Required | Notes                                      |
+| ------------------- | ------- | -------- | ------------------------------------------ |
+| `video_id`          | `str`   | yes      | Non-empty; joins to manifest.              |
+| `chunk_seconds`     | `float` | yes      | Chunk window size; must be `> 0`.          |
+| `embedding_variant` | `str`   | yes      | Variant stored in the index.               |
+| `backend`           | `str?`  | no       | Vector store backend (e.g. `chroma`).      |
+| `index_path`        | `str?`  | no       | Path to the persisted index directory.     |
+| `num_vectors`       | `int`   | yes      | Number of vectors stored; must be `>= 0`.  |
+| `vector_dim`        | `int?`  | no       | Embedding dimension if known.              |
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -428,6 +460,7 @@ generic text-splitter chunking** — the point of the stage is to line up
 transcript, OCR, captions, and frames on the same fixed time grid. It does not
 build searchable text, embed, store vectors, retrieve, rerank, answer
 questions, or evaluate. Stage 10 turns these chunks into searchable text.
+
 CLI:
 
 ```bash
@@ -540,13 +573,54 @@ script `raggers-embed` is installed as an alias. Vectors are written atomically
 (`*.jsonl.tmp` + `os.replace`) in deterministic input-chunk order. **Vector
 storage into a vector index happens in Stage 12.**
 
+## Stage 12: Vector Storage
+
+**Implemented.** Module: [`video_rag/index/store_vectors.py`](../video_rag/index/store_vectors.py).
+
+Input:
+
+- `data/embeddings/{video_id}_{chunk_seconds}s_{variant}.jsonl` (Stage 11)
+- optional `data/chunks/{video_id}_{chunk_seconds}s_enriched.jsonl` (Stage 9/10) for document text
+
+Output:
+
+- persisted local vector index at `data/indexes/{video_id}_{chunk_seconds}s_{variant}/`
+- optional manifest at `data/indexes/{video_id}_{chunk_seconds}s_{variant}/vector_store_manifest.json`
+
+This stage reads embedding records from Stage 11, validates consistent
+`video_id`, `embedding_variant`, and vector dimensions, and writes vectors plus
+retrieval metadata into a local Chroma collection. Each vector is keyed by
+`chunk_id` and stores metadata needed for timestamped evidence:
+`chunk_id`, `video_id`, `start_time`, `end_time`, `embedding_variant`, and
+`embedding_model`. If enriched chunks are available, the selected variant's
+combined search text is attached as the Chroma document.
+
+If the index output already exists, the stage fails unless `overwrite=True`
+(or `--overwrite` on the CLI). It does not create embeddings, rerank, answer
+questions, or run evaluation. **Index validation happens in Stage 13.**
+
+Install the vector-store dependency with:
+
+```bash
+pip install -e ".[vectorstore]"
+```
+
+CLI:
+
+```bash
+python -m video_rag.index.store_vectors \
+    --video-id lecture_001 \
+    --chunk-seconds 30 \
+    --variant transcript_ocr_vlm
+```
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- vector store manifests, retrieval results, answer payloads.
+- retrieval results, answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.
@@ -556,8 +630,8 @@ here.
 The artifact folder layout is documented in [`../data/README.md`](../data/README.md).
 Implemented stages write to `data/videos/`, `data/manifests/`, `data/audio/`,
 `data/transcripts/`, `data/frames/`, `data/ocr/`, `data/captions/`,
-`data/chunks/`, `data/embeddings/`, and `data/validation/`; other folders are
-placeholders.
+`data/chunks/`, `data/embeddings/`, `data/indexes/`, and `data/validation/`;
+other folders are placeholders.
 
 ## Validating artifacts
 

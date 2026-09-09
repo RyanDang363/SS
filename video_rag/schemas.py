@@ -192,3 +192,17 @@ class EmbeddingRecord(BaseModel):
                 f"({len(self.vector)})"
             )
         return self
+
+
+class VectorStoreManifest(BaseModel):
+    """Manifest for a persisted local vector index, produced by Stage 12."""
+
+    model_config = ConfigDict(extra="allow")
+
+    video_id: str = Field(min_length=1)
+    chunk_seconds: float = Field(gt=0)
+    embedding_variant: str = Field(min_length=1)
+    backend: str | None = None
+    index_path: str | None = None
+    num_vectors: int = Field(ge=0)
+    vector_dim: int | None = Field(default=None, gt=0)

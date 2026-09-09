@@ -20,19 +20,23 @@ from pydantic import BaseModel, ValidationError
 
 from video_rag.io_utils import read_json, read_jsonl
 from video_rag.schemas import (
+    EmbeddingRecord,
     FrameSample,
     MediaMetadata,
     TranscriptSegment,
+    VectorStoreManifest,
     VideoManifest,
 )
 
 JSON_SCHEMAS: dict[str, Type[BaseModel]] = {
     "video_manifest": VideoManifest,
     "media_metadata": MediaMetadata,
+    "vector_store_manifest": VectorStoreManifest,
 }
 
 JSONL_SCHEMAS: dict[str, Type[BaseModel]] = {
     "frame_sample": FrameSample,
+    "embedding_record": EmbeddingRecord,
 }
 
 ALL_TYPES = sorted({*JSON_SCHEMAS, *JSONL_SCHEMAS, "transcript_segments"})
