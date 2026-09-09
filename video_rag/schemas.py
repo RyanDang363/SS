@@ -215,3 +215,29 @@ class IndexValidationReport(BaseModel):
     num_vectors: int = Field(ge=0)
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class RetrievalResult(BaseModel):
+    """One query-time retrieval hit from a searchable video index."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_id: str = Field(min_length=1)
+    video_id: str = Field(min_length=1)
+    score: float = Field(ge=0)
+    start_time: float = Field(ge=0)
+    end_time: float = Field(gt=0)
+    transcript_text: str | None = None
+    ocr_text: str | None = None
+    vlm_caption: str | None = None
+    combined_text: str | None = None
+    frame_paths: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_result(self) -> "RetrievalResult":
+        if self.end_time <= self.start_time:
+            raise ValueError(
+                f"end_time ({self.end_time}) must be greater than "
+                f"start_time ({self.start_time})"
+            )
+        return self

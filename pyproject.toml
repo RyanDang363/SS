@@ -39,6 +39,7 @@ raggers-transcribe = "video_rag.index.transcribe_audio:main"
 raggers-embed = "video_rag.index.embed_chunks:main"
 raggers-index = "video_rag.index.run_pipeline:main"
 raggers-store-vectors = "video_rag.index.store_vectors:main"
+raggers-retrieve = "video_rag.search.retrieve:main"
 
 [tool.setuptools.packages.find]
 include = ["video_rag*"]

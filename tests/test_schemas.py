@@ -8,6 +8,7 @@ from video_rag.schemas import (
     FrameSample,
     MediaMetadata,
     OCRResult,
+    RetrievalResult,
     TranscriptSegment,
     VideoManifest,
     VLMCaption,
@@ -381,4 +382,36 @@ def test_chunk_end_time_must_be_after_start_time():
             end_time=30.0,
             chunk_seconds=30.0,
             chunking_strategy="fixed",
+        )
+
+
+# --- RetrievalResult ---------------------------------------------------------
+
+
+def test_retrieval_result_valid():
+    result = RetrievalResult(
+        chunk_id="lecture_001_chunk_0000",
+        video_id="lecture_001",
+        score=0.0,
+        start_time=0.0,
+        end_time=30.0,
+        transcript_text="Spoken evidence.",
+        ocr_text="Visible evidence.",
+        vlm_caption="Visual evidence.",
+        combined_text="Searchable evidence.",
+        frame_paths=["data/frames/lecture_001/frame_000000.jpg"],
+    )
+
+    assert result.score == 0.0
+    assert result.frame_paths == ["data/frames/lecture_001/frame_000000.jpg"]
+
+
+def test_retrieval_result_end_time_must_be_after_start_time():
+    with pytest.raises(ValidationError):
+        RetrievalResult(
+            chunk_id="lecture_001_chunk_0000",
+            video_id="lecture_001",
+            score=0.0,
+            start_time=30.0,
+            end_time=30.0,
         )

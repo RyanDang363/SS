@@ -212,6 +212,24 @@ Manifest for a persisted local vector index, written by Stage 12 to
 | `num_vectors`       | `int`   | yes      | Number of vectors stored; must be `>= 0`.  |
 | `vector_dim`        | `int?`  | no       | Embedding dimension if known.              |
 
+### `RetrievalResult`
+
+One query-time retrieval hit from a searchable video index. Returned by Stage
+15 retrieval, not written as a long-lived indexing artifact.
+
+| Field             | Type        | Required | Notes                                      |
+| ----------------- | ----------- | -------- | ------------------------------------------ |
+| `chunk_id`        | `str`       | yes      | Joins to enriched chunk records.           |
+| `video_id`        | `str`       | yes      | Non-empty; joins to manifest.              |
+| `score`           | `float`     | yes      | Chroma distance; lower is more similar.    |
+| `start_time`      | `float`     | yes      | Seconds; `>= 0`.                           |
+| `end_time`        | `float`     | yes      | Seconds; `> start_time`.                   |
+| `transcript_text` | `str?`      | no       | Spoken evidence from the source chunk.     |
+| `ocr_text`        | `str?`      | no       | Visible text evidence from the source chunk. |
+| `vlm_caption`     | `str?`      | no       | Visual semantic evidence from the chunk.   |
+| `combined_text`   | `str?`      | no       | Search text or stored vector document.     |
+| `frame_paths`     | `list[str]` | yes      | Frame evidence paths, if chunk data exists. |
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -651,13 +669,48 @@ python -m video_rag.index.validate_index \
   --variant transcript_ocr_vlm
 ```
 
+## Stage 15: Retrieval
+
+**Implemented.** Module: [`video_rag/search/retrieve.py`](../video_rag/search/retrieve.py).
+
+Inputs:
+
+- `data/indexes/{video_id}_{chunk_seconds}s_{variant}/vector_store_manifest.json`
+- `data/indexes/{video_id}_{chunk_seconds}s_{variant}/`
+- optional `data/chunks/{video_id}_{chunk_seconds}s_enriched.jsonl`
+
+Runtime input:
+
+- user question text
+
+Output:
+
+- a list of `RetrievalResult` records printed as JSON by the CLI or returned
+  from `retrieve()`.
+
+This stage embeds the user question, queries the Stage 12 Chroma collection,
+and joins returned chunk IDs back to enriched chunk evidence when the chunk file
+is available. It does not generate final natural-language answers; grounded
+answer synthesis is Stage 16.
+
+CLI:
+
+```bash
+python -m video_rag.search.retrieve \
+  --video-id lecture_001 \
+  --question "What formula was shown for Bayes theorem?" \
+  --variant transcript_ocr_vlm \
+  --provider openai \
+  --top-k 5
+```
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- retrieval results, answer payloads.
+- answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.

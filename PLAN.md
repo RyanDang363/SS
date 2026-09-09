@@ -90,6 +90,12 @@ Branch name:
 stage-14-full-index-pipeline
 ```
 
+Status:
+
+```text
+Complete and merged into main.
+```
+
 Goal:
 
 Update `video_rag/index/run_pipeline.py` so the CLI can build a complete
@@ -144,6 +150,12 @@ Branch name:
 
 ```bash
 stage-15-retrieval
+```
+
+Status:
+
+```text
+In progress on the current branch.
 ```
 
 Goal:
@@ -393,15 +405,14 @@ After the hosted demo works, harden the system:
 
 ## Immediate Next Step
 
-Start with:
+After merging `stage-15-retrieval`, start:
 
 ```bash
-git checkout -b stage-14-full-index-pipeline
+git checkout -b stage-16-grounded-answering
 ```
 
-Then implement Stage A.
+Then implement Stage C.
 
-This is the right next branch because it connects the newly merged Stage 9-13
-work into one executable indexing command. Without that, the API and UI would
-need to manually orchestrate separate stage commands, which would duplicate
-pipeline logic too early.
+This is the right next branch because retrieval returns timestamped evidence,
+and the next product capability is turning that evidence into grounded answers
+with citations.
