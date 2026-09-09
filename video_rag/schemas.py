@@ -206,3 +206,17 @@ class VectorStoreManifest(BaseModel):
     index_path: str | None = None
     num_vectors: int = Field(ge=0)
     vector_dim: int | None = Field(default=None, gt=0)
+
+
+class IndexValidationReport(BaseModel):
+    """Stage 13 validation report for a built searchable index."""
+
+    video_id: str = Field(min_length=1)
+    chunk_seconds: float = Field(gt=0)
+    embedding_variant: str = Field(min_length=1)
+    status: Literal["passed", "failed"]
+    num_chunks: int = Field(ge=0)
+    num_embeddings: int = Field(ge=0)
+    num_vectors: int = Field(ge=0)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
