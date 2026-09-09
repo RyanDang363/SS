@@ -4,10 +4,16 @@
 # Core runtime
 pydantic>=2.0
 opencv-python-headless>=4.0
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
 
 # OpenAI-backed transcription and VLM captions
 openai>=1.0
 python-dotenv>=1.0
+
+# Vector storage
+chromadb>=0.5
 
 # OCR
 easyocr>=1.7

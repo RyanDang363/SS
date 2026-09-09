@@ -874,13 +874,39 @@ The UI posts browser `FormData` to `POST /videos`, so the API treats blank
 optional `title` and `video_id` form fields as missing and derives IDs from the
 original upload filename when needed.
 
+## Stage 19: Deployment Packaging
+
+**Implemented.** Deployment artifacts:
+[`Dockerfile`](../Dockerfile), [`.dockerignore`](../.dockerignore),
+[`render.yaml`](../render.yaml), [`.env.example`](../.env.example), and
+[`docs/deploy.md`](deploy.md).
+
+The deployment package runs the same FastAPI app and bundled UI in a container.
+The image installs `ffmpeg`/`ffprobe`, API dependencies, OpenAI-backed provider
+dependencies, and Chroma vector storage. OCR dependencies are opt-in through the
+Docker build argument `INSTALL_OCR=true` because they are large.
+
+The API entrypoint reads hosting environment variables:
+
+| Variable | Purpose |
+| -------- | ------- |
+| `HOST` | Bind host, defaulting to `127.0.0.1` locally and set to `0.0.0.0` in Docker. |
+| `PORT` | Bind port, defaulting to `8000`. |
+| `DATA_DIR` | Artifact root, defaulting to `data` locally and `/app/data` in Docker. |
+| `OPENAI_API_KEY` | Provider credential for OpenAI-backed transcription, embeddings, captions, and answers. |
+
+`render.yaml` defines a Docker web service with `/health` checks and a
+persistent disk mounted at `/app/data`. Other Docker-capable hosts can use the
+same image as long as `DATA_DIR` is persistent and the injected `PORT` is
+exposed.
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- Deployment packaging.
+- Production hardening.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.
