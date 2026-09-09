@@ -192,10 +192,10 @@ One vector embedding for an enriched chunk, written by Stage 11 to
 | `start_time`         | `float`       | yes      | Seconds; `>= 0`.                        |
 | `end_time`           | `float`       | yes      | Seconds; `> start_time`.                |
 | `embedding_model`    | `str`         | yes      | Model used to produce the vector.       |
-| `embedding_provider` | `str`         | yes      | Provider used to produce the vector.    |
+| `embedding_provider` | `str?`        | no       | Provider used to produce the vector.    |
 | `embedding_variant`  | `str`         | yes      | Search-text variant embedded.           |
 | `vector`             | `list[float]` | yes      | Non-empty embedding vector.             |
-| `vector_dim`         | `int`         | yes      | `> 0` and must equal `len(vector)`.     |
+| `vector_dim`         | `int?`        | no       | If present, must match `len(vector)`.   |
 
 ### `VectorStoreManifest`
 

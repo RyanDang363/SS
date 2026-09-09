@@ -174,10 +174,10 @@ class EmbeddingRecord(BaseModel):
     start_time: float = Field(ge=0)
     end_time: float = Field(gt=0)
     embedding_model: str = Field(min_length=1)
-    embedding_provider: str = Field(min_length=1)
+    embedding_provider: str | None = Field(default=None, min_length=1)
     embedding_variant: EmbeddingVariant
     vector: list[float] = Field(min_length=1)
-    vector_dim: int = Field(gt=0)
+    vector_dim: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _check_record(self) -> "EmbeddingRecord":
@@ -185,11 +185,6 @@ class EmbeddingRecord(BaseModel):
             raise ValueError(
                 f"end_time ({self.end_time}) must be greater than "
                 f"start_time ({self.start_time})"
-            )
-        if self.vector_dim != len(self.vector):
-            raise ValueError(
-                f"vector_dim ({self.vector_dim}) must equal len(vector) "
-                f"({len(self.vector)})"
             )
         return self
 
