@@ -257,6 +257,23 @@ Timestamped citation extracted from a retrieval result.
 | `end_time`    | `float`     | yes      | Seconds; `> start_time`.         |
 | `frame_paths` | `list[str]` | yes      | Frame evidence paths, if known.  |
 
+### API job records
+
+The Stage 17 API stores lightweight job records under `data/jobs/{job_id}.json`.
+These records are API-local Pydantic models in
+[`video_rag/api/app.py`](../video_rag/api/app.py), not shared indexing
+artifacts.
+
+| Field        | Type                                      | Required | Notes                           |
+| ------------ | ----------------------------------------- | -------- | ------------------------------- |
+| `job_id`     | `str`                                     | yes      | Opaque job identifier.          |
+| `video_id`   | `str`                                     | yes      | Registered video being indexed. |
+| `status`     | `queued`, `running`, `succeeded`, `failed` | yes      | Current job status.             |
+| `stage`      | `str`                                     | yes      | Coarse current stage label.     |
+| `created_at` | `str`                                     | yes      | UTC timestamp string.           |
+| `updated_at` | `str`                                     | yes      | UTC timestamp string.           |
+| `error`      | `str?`                                    | no       | Failure detail when available.  |
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -696,6 +713,36 @@ python -m video_rag.index.validate_index \
   --variant transcript_ocr_vlm
 ```
 
+## Stage 14: Full Index Pipeline
+
+**Implemented.** Module: [`video_rag/index/run_pipeline.py`](../video_rag/index/run_pipeline.py).
+
+This stage wires the local indexing stages into one command:
+
+```text
+register -> probe -> audio -> transcribe -> frames -> OCR -> captions
+-> build_chunks -> build_search_text -> embed_chunks -> store_vectors
+-> validate_index
+```
+
+It keeps the artifact-first design: each underlying stage still reads and writes
+its own validated files under `data/`. The runner only coordinates ordering and
+argument forwarding. It can skip OCR, visual captions, vector storage, or final
+validation for cheaper smoke runs, but the default path builds a searchable
+index.
+
+CLI:
+
+```bash
+python -m video_rag.index.run_pipeline \
+  --video path/to/lecture.mp4 \
+  --title "Bayes Lecture" \
+  --video-id lecture_001 \
+  --transcription-provider openai \
+  --embedding-provider openai \
+  --embedding-variant transcript_ocr_vlm
+```
+
 ## Stage 15: Retrieval
 
 **Implemented.** Module: [`video_rag/search/retrieve.py`](../video_rag/search/retrieve.py).
@@ -769,13 +816,47 @@ python -m video_rag.search.answer \
   --top-k 5
 ```
 
+## Stage 17: API Server
+
+**Implemented.** Module: [`video_rag/api/app.py`](../video_rag/api/app.py).
+
+The API server exposes the local RAG pipeline over HTTP using FastAPI. It is a
+single-process V0 service: uploads are copied into `data/uploads/`, registered
+videos live under the existing artifact layout, and indexing jobs are tracked by
+JSON job records under `data/jobs/`.
+
+Endpoints:
+
+| Method | Path                         | Purpose                                     |
+| ------ | ---------------------------- | ------------------------------------------- |
+| `GET`  | `/health`                    | Health check.                               |
+| `POST` | `/videos`                    | Upload and register a video.                |
+| `GET`  | `/videos/{video_id}`         | Return manifest, artifact flags, validation. |
+| `POST` | `/videos/{video_id}/index`   | Start a background indexing job.            |
+| `GET`  | `/jobs/{job_id}`             | Read a persisted job record.                |
+| `POST` | `/videos/{video_id}/search`  | Return Stage 15 retrieval results.          |
+| `POST` | `/videos/{video_id}/answer`  | Return a Stage 16 grounded answer.          |
+
+Install API dependencies with:
+
+```bash
+pip install -e ".[api]"
+```
+
+Run locally with:
+
+```bash
+python -m video_rag.api.app --host 127.0.0.1 --port 8000 --data-dir data
+```
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- API request/response payloads.
+- Hosted frontend screens.
+- Deployment packaging.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.
