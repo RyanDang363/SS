@@ -59,12 +59,31 @@ def test_health_endpoint(tmp_path: Path):
     assert response.json() == {"status": "ok"}
 
 
+def test_ui_shell_is_served(tmp_path: Path):
+    client = _client(tmp_path)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Video RAG Workbench" in response.text
+    assert "/static/app.js" in response.text
+
+
+def test_static_assets_are_served(tmp_path: Path):
+    client = _client(tmp_path)
+
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == 200
+    assert "app-shell" in response.text
+
+
 def test_upload_video_registers_manifest(tmp_path: Path):
     client = _client(tmp_path)
 
     response = client.post(
         "/videos",
-        params={"title": "Lecture", "video_id": VIDEO_ID},
+        data={"title": "Lecture", "video_id": VIDEO_ID},
         files={"file": ("lecture.mp4", b"fake video bytes", "video/mp4")},
     )
 
@@ -72,6 +91,19 @@ def test_upload_video_registers_manifest(tmp_path: Path):
     payload = response.json()
     assert payload["video_id"] == VIDEO_ID
     assert (tmp_path / payload["manifest_path"]).exists()
+
+
+def test_upload_video_treats_blank_metadata_as_missing(tmp_path: Path):
+    client = _client(tmp_path)
+
+    response = client.post(
+        "/videos",
+        data={"title": "", "video_id": ""},
+        files={"file": ("Lecture Clip.mp4", b"fake video bytes", "video/mp4")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["video_id"] == "lecture_clip"
 
 
 def test_get_video_returns_manifest_and_artifact_flags(tmp_path: Path):
@@ -86,6 +118,26 @@ def test_get_video_returns_manifest_and_artifact_flags(tmp_path: Path):
     assert payload["artifacts"]["manifest"] is True
     assert payload["artifacts"]["transcript"] is False
     assert payload["validation"] is None
+
+
+def test_artifact_endpoint_serves_files_under_data_root(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    frame = data_dir / "frames" / VIDEO_ID / "frame_000000.jpg"
+    frame.parent.mkdir(parents=True)
+    frame.write_bytes(b"image bytes")
+
+    response = _client(tmp_path).get(
+        f"/artifacts/data/frames/{VIDEO_ID}/frame_000000.jpg"
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"image bytes"
+
+
+def test_artifact_endpoint_rejects_path_traversal(tmp_path: Path):
+    response = _client(tmp_path).get("/artifacts/../pyproject.toml")
+
+    assert response.status_code == 404
 
 
 def test_index_endpoint_creates_successful_background_job(tmp_path: Path, monkeypatch):

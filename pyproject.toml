@@ -58,6 +58,9 @@ raggers-api = "video_rag.api.app:main"
 include = ["video_rag*"]
 exclude = ["tests*", "data*", "docs*", "examples*"]
 
+[tool.setuptools.package-data]
+video_rag = ["api/static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
