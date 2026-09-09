@@ -2,7 +2,7 @@
 
 ## Current State
 
-`main` now contains a staged video indexing pipeline through Stage 13:
+`main` now contains a staged video RAG pipeline through Stage 16:
 
 1. Register a video into `data/videos/` and write a `VideoManifest`.
 2. Probe media metadata with `ffprobe`.
@@ -16,6 +16,9 @@
 10. Embed enriched chunks.
 11. Store embeddings in a local Chroma vector index.
 12. Validate the built index.
+13. Run the full local indexing pipeline end to end.
+14. Retrieve timestamped evidence from a searchable vector index.
+15. Generate grounded answers with timestamp citations.
 
 The core architecture is artifact-first. Each stage reads JSON or JSONL from
 `data/`, validates records with Pydantic schemas, writes the next artifact, and
@@ -35,10 +38,13 @@ Current important modules:
 - `video_rag/index/embed_chunks.py`
 - `video_rag/index/store_vectors.py`
 - `video_rag/index/validate_index.py`
+- `video_rag/index/run_pipeline.py`
+- `video_rag/search/retrieve.py`
+- `video_rag/search/answer.py`
 
-The main gap is productization: the current repo can build index artifacts, but
-it does not yet provide a hosted app, upload flow, retrieval API, answer
-generation, or a full pipeline runner that includes Stages 9-13.
+The main gap is productization: the current repo can build index artifacts,
+retrieve evidence, and generate grounded answers, but it does not yet provide a
+hosted UI or deployment packaging.
 
 ## Target Product
 
@@ -155,7 +161,7 @@ stage-15-retrieval
 Status:
 
 ```text
-In progress on the current branch.
+Complete and merged into main.
 ```
 
 Goal:
@@ -210,7 +216,7 @@ stage-16-grounded-answering
 Status:
 
 ```text
-In progress on the current branch.
+Complete and merged into main.
 ```
 
 Goal:
@@ -265,6 +271,12 @@ stage-17-api-server
 Goal:
 
 Expose upload, indexing, status, retrieval, and answer generation over HTTP.
+
+Status:
+
+```text
+In progress on the current branch.
+```
 
 Recommended framework:
 
@@ -411,14 +423,14 @@ After the hosted demo works, harden the system:
 
 ## Immediate Next Step
 
-After merging `stage-16-grounded-answering`, start:
+After merging `stage-17-api-server`, start:
 
 ```bash
-git checkout -b stage-17-api-server
+git checkout -b stage-18-hosted-ui
 ```
 
-Then implement Stage D.
+Then implement Stage E.
 
-This is the right next branch because the core local RAG flow will be complete:
-indexing, retrieval, and grounded answers. The next product capability is
-exposing that flow through upload, job status, search, and answer endpoints.
+This is the right next branch because the backend surface will exist: upload,
+index job status, search, and answers. The next product capability is a usable
+browser UI on top of those endpoints.
