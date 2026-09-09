@@ -830,10 +830,13 @@ Endpoints:
 | Method | Path                         | Purpose                                     |
 | ------ | ---------------------------- | ------------------------------------------- |
 | `GET`  | `/health`                    | Health check.                               |
+| `GET`  | `/`                          | Serve the Stage 18 browser UI.              |
+| `GET`  | `/static/{asset_path}`       | Serve packaged UI assets.                   |
 | `POST` | `/videos`                    | Upload and register a video.                |
 | `GET`  | `/videos/{video_id}`         | Return manifest, artifact flags, validation. |
 | `POST` | `/videos/{video_id}/index`   | Start a background indexing job.            |
 | `GET`  | `/jobs/{job_id}`             | Read a persisted job record.                |
+| `GET`  | `/artifacts/{artifact_path}` | Safely serve files under `data/`.           |
 | `POST` | `/videos/{video_id}/search`  | Return Stage 15 retrieval results.          |
 | `POST` | `/videos/{video_id}/answer`  | Return a Stage 16 grounded answer.          |
 
@@ -849,13 +852,34 @@ Run locally with:
 python -m video_rag.api.app --host 127.0.0.1 --port 8000 --data-dir data
 ```
 
+## Stage 18: Hosted UI
+
+**Implemented.** Static assets:
+[`video_rag/api/static/index.html`](../video_rag/api/static/index.html),
+[`video_rag/api/static/styles.css`](../video_rag/api/static/styles.css), and
+[`video_rag/api/static/app.js`](../video_rag/api/static/app.js).
+
+The Stage 18 UI is served by the FastAPI app at `/`. It provides a browser
+workflow for:
+
+- uploading and registering a video,
+- starting an indexing job,
+- polling job status,
+- refreshing artifact status,
+- running retrieval-only search,
+- generating grounded answers,
+- rendering timestamped evidence and frame previews through `/artifacts/...`.
+
+The UI posts browser `FormData` to `POST /videos`, so the API treats blank
+optional `title` and `video_id` form fields as missing and derives IDs from the
+original upload filename when needed.
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- Hosted frontend screens.
 - Deployment packaging.
 
 Each module owner defines the contract for their stage. Don't pre-spec them

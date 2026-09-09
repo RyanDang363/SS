@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RAGGERS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">RAGGERS</p>
+            <h1>Video RAG Workbench</h1>
+          </div>
+          <div class="status-pill" id="api-status">Checking API</div>
+        </div>
+
+        <section class="panel upload-panel" aria-labelledby="upload-title">
+          <div class="panel-heading">
+            <h2 id="upload-title">Video</h2>
+            <span id="video-chip">No video</span>
+          </div>
+          <form id="upload-form" class="upload-grid">
+            <label class="file-drop">
+              <input id="video-file" name="file" type="file" accept="video/*" required>
+              <span>Choose video</span>
+              <strong id="file-name">No file selected</strong>
+            </label>
+            <label>
+              Title
+              <input id="title" name="title" type="text" autocomplete="off" placeholder="Lecture">
+            </label>
+            <label>
+              Video ID
+              <input id="video-id" name="video_id" type="text" autocomplete="off" placeholder="lecture_001">
+            </label>
+            <button type="submit">Upload</button>
+          </form>
+        </section>
+
+        <section class="split">
+          <section class="panel" aria-labelledby="index-title">
+            <div class="panel-heading">
+              <h2 id="index-title">Indexing</h2>
+              <button id="refresh-video" type="button">Refresh</button>
+            </div>
+            <div class="settings-grid">
+              <label>
+                Transcribe
+                <select id="transcription-provider">
+                  <option value="openai">openai</option>
+                  <option value="mock">mock</option>
+                </select>
+              </label>
+              <label>
+                Embed
+                <select id="embedding-provider">
+                  <option value="openai">openai</option>
+                  <option value="mock">mock</option>
+                </select>
+              </label>
+              <label>
+                Chunk seconds
+                <input id="chunk-seconds" type="number" min="1" step="1" value="30">
+              </label>
+              <label>
+                Top K
+                <input id="top-k" type="number" min="1" step="1" value="5">
+              </label>
+            </div>
+            <div class="toggle-row">
+              <label><input id="skip-ocr" type="checkbox"> Skip OCR</label>
+              <label><input id="skip-captions" type="checkbox"> Skip captions</label>
+            </div>
+            <button id="start-index" type="button">Start Index</button>
+            <div class="job-line">
+              <span id="job-status">Idle</span>
+              <span id="job-stage"></span>
+            </div>
+            <pre id="artifact-status" class="status-box">No artifact status loaded.</pre>
+          </section>
+
+          <section class="panel answer-panel" aria-labelledby="ask-title">
+            <div class="panel-heading">
+              <h2 id="ask-title">Ask</h2>
+              <select id="ask-mode" aria-label="Answer mode">
+                <option value="answer">Answer</option>
+                <option value="search">Search</option>
+              </select>
+            </div>
+            <div class="ask-settings">
+              <label>
+                Retrieval
+                <select id="retrieval-provider">
+                  <option value="openai">openai</option>
+                  <option value="mock">mock</option>
+                </select>
+              </label>
+              <label>
+                Answer
+                <select id="answer-provider">
+                  <option value="openai">openai</option>
+                  <option value="mock">mock</option>
+                </select>
+              </label>
+            </div>
+            <textarea id="question" rows="5" placeholder="Ask about the uploaded video"></textarea>
+            <button id="ask-button" type="button">Run</button>
+            <div id="answer-output" class="answer-output">No answer yet.</div>
+          </section>
+        </section>
+
+        <section class="panel evidence-panel" aria-labelledby="evidence-title">
+          <div class="panel-heading">
+            <h2 id="evidence-title">Evidence</h2>
+            <span id="evidence-count">0 results</span>
+          </div>
+          <div id="evidence-list" class="evidence-list"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

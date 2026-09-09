@@ -275,7 +275,7 @@ Expose upload, indexing, status, retrieval, and answer generation over HTTP.
 Status:
 
 ```text
-In progress on the current branch.
+Complete and merged into main.
 ```
 
 Recommended framework:
@@ -331,6 +331,12 @@ stage-18-hosted-ui
 Goal:
 
 Build a usable web UI for upload, indexing progress, and question answering.
+
+Status:
+
+```text
+In progress on the current branch.
+```
 
 Core screens:
 
@@ -423,14 +429,14 @@ After the hosted demo works, harden the system:
 
 ## Immediate Next Step
 
-After merging `stage-17-api-server`, start:
+After merging `stage-18-hosted-ui`, start:
 
 ```bash
-git checkout -b stage-18-hosted-ui
+git checkout -b stage-19-deploy
 ```
 
-Then implement Stage E.
+Then implement Stage F.
 
-This is the right next branch because the backend surface will exist: upload,
-index job status, search, and answers. The next product capability is a usable
-browser UI on top of those endpoints.
+This is the right next branch because the backend and browser UI will exist.
+The next product capability is packaging that app for a hosted runtime with
+`ffmpeg`, persistent `data/`, and provider environment variables.

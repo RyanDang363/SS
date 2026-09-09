@@ -1,4 +1,4 @@
-"""Stage 17: FastAPI app for upload, indexing, search, and answers."""
+"""FastAPI app for upload, indexing, search, answers, and the local UI."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from video_rag.index.register_video import register_video
@@ -23,6 +24,7 @@ from video_rag.search.retrieve import retrieve
 PathLike = str | Path
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 class IndexRequest(BaseModel):
@@ -74,6 +76,13 @@ class JobRecord(BaseModel):
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
 
 
 def _job_path(data_root: Path, job_id: str) -> Path:
@@ -177,10 +186,47 @@ def _artifact_flags(data_root: Path, video_id: str) -> dict[str, bool]:
     }
 
 
+def _resolve_static_file(asset_path: str) -> Path:
+    root = STATIC_DIR.resolve()
+    candidate = (root / asset_path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail="static asset not found") from e
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="static asset not found")
+    return candidate
+
+
+def _resolve_artifact_file(data_root: Path, artifact_path: str) -> Path:
+    parts = Path(artifact_path).parts
+    if parts and parts[0] == data_root.name:
+        relative = Path(*parts[1:])
+    else:
+        relative = Path(artifact_path)
+    root = data_root.resolve()
+    candidate = (root / relative).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail="artifact not found") from e
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return candidate
+
+
 def create_app(data_dir: PathLike = "data") -> FastAPI:
     """Create the RAGGERS FastAPI app."""
     data_root = Path(data_dir)
     app = FastAPI(title="RAGGERS API")
+
+    @app.get("/", include_in_schema=False)
+    def ui() -> FileResponse:
+        return FileResponse(_resolve_static_file("index.html"))
+
+    @app.get("/static/{asset_path:path}", include_in_schema=False)
+    def static_asset(asset_path: str) -> FileResponse:
+        return FileResponse(_resolve_static_file(asset_path))
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -189,10 +235,12 @@ def create_app(data_dir: PathLike = "data") -> FastAPI:
     @app.post("/videos")
     def upload_video(
         file: UploadFile = File(...),
-        title: str | None = None,
-        video_id: str | None = None,
-        mode: Literal["copy", "symlink"] = "copy",
+        title: str | None = Form(default=None),
+        video_id: str | None = Form(default=None),
+        mode: Literal["copy", "symlink"] = Form(default="copy"),
     ) -> dict[str, str]:
+        title = _blank_to_none(title)
+        video_id = _blank_to_none(video_id)
         uploads_dir = data_root / "uploads"
         uploads_dir.mkdir(parents=True, exist_ok=True)
         safe_name = Path(file.filename or "upload.mp4").name
@@ -203,7 +251,7 @@ def create_app(data_dir: PathLike = "data") -> FastAPI:
         try:
             manifest = register_video(
                 upload_path,
-                title=title,
+                title=title or Path(safe_name).stem,
                 video_id=video_id,
                 mode=mode,
                 data_dir=data_root,
@@ -260,6 +308,10 @@ def create_app(data_dir: PathLike = "data") -> FastAPI:
     @app.get("/jobs/{job_id}")
     def get_job(job_id: str) -> JobRecord:
         return _read_job(data_root, job_id)
+
+    @app.get("/artifacts/{artifact_path:path}")
+    def get_artifact(artifact_path: str) -> FileResponse:
+        return FileResponse(_resolve_artifact_file(data_root, artifact_path))
 
     @app.post("/videos/{video_id}/search")
     def search_video(video_id: str, request: SearchRequest) -> list[dict]:
