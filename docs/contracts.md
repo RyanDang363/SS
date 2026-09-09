@@ -158,6 +158,28 @@ File-level rules enforced by `python -m video_rag.validate`:
 
 Example: [`examples/transcript_segment.example.jsonl`](../examples/transcript_segment.example.jsonl).
 
+### `Chunk`
+
+A fixed-time retrieval unit aligning all modalities on a shared timeline.
+Written by Stage 9 as JSONL — one record per line — under
+`data/chunks/{video_id}_{chunk_seconds}s.jsonl`. This is custom timestamp
+alignment across modalities, not text-splitter document chunking.
+
+| Field               | Type                | Required | Notes                                                       |
+| ------------------- | ------------------- | -------- | ----------------------------------------------------------- |
+| `chunk_id`          | `str`               | yes      | Non-empty; e.g. `lecture_001_chunk_0007`.                   |
+| `video_id`          | `str`               | yes      | Non-empty; joins to manifest.                               |
+| `chunk_index`       | `int`               | yes      | `>= 0`. Position of the window in the video.                |
+| `start_time`        | `float`             | yes      | Seconds; `>= 0`.                                            |
+| `end_time`          | `float`             | yes      | Seconds; `> start_time`. Last chunk ends at duration.       |
+| `transcript_text`   | `str`               | yes      | May be empty. Overlapping segments joined by spaces.        |
+| `ocr_text`          | `str`               | yes      | May be empty. In-window OCR text joined by spaces.          |
+| `vlm_caption`       | `str`               | yes      | May be empty. Overlapping captions joined by spaces.        |
+| `frame_paths`       | `list[str]`         | yes      | May be empty. In-window frame paths, ordered by time.       |
+| `chunk_seconds`     | `float`             | yes      | `> 0`. Fixed window length used for chunking.               |
+| `overlap_seconds`   | `float`             | yes      | `>= 0` and `< chunk_seconds`. Defaults to `0`.              |
+| `chunking_strategy` | `Literal["fixed"]`  | yes      | `"fixed"` for the MVP.                                       |
+
 ## Stage 1: Video Registration
 
 **Implemented.** Module: [`video_rag/index/register_video.py`](../video_rag/index/register_video.py).
@@ -365,13 +387,66 @@ default model is `gpt-4o-mini`. It does not OCR, chunk, embed, retrieve, answer
 questions, or modify frame manifests, OCR outputs, or video manifests.
 Query-aware captioning is a future retrieval-time enhancement.
 
+## Stage 9: Chunking
+
+**Implemented.** Module: [`video_rag/index/build_chunks.py`](../video_rag/index/build_chunks.py).
+
+Inputs:
+
+- `data/manifests/{video_id}/media_metadata.json` (Stage 2 output, **required**)
+- `data/transcripts/{video_id}.jsonl` (Stage 4 output, **required**)
+- `data/frames/{video_id}/frame_manifest.jsonl` (Stage 5 output, optional)
+- `data/ocr/{video_id}.jsonl` (Stage 7 output, optional)
+- `data/captions/{video_id}.jsonl` (Stage 8 output, optional)
+
+Output:
+
+- `data/chunks/{video_id}_{chunk_seconds}s.jsonl` containing one `Chunk` per
+  line. When `overlap_seconds > 0`, the filename gains a suffix to avoid
+  collisions: `data/chunks/{video_id}_{chunk_seconds}s_overlap{overlap_seconds}s.jsonl`.
+
+Fixed-time chunking strategy:
+
+- Windows are derived from `MediaMetadata.duration_seconds`. The default chunk
+  size is 30 seconds with `overlap_seconds = 0`.
+- Window starts are `0, stride, 2*stride, ...` (where
+  `stride = chunk_seconds - overlap_seconds`) while the start is still inside
+  the video; each window ends at `min(start + chunk_seconds, duration)`, so the
+  final chunk ends exactly at `duration_seconds`, never beyond it.
+- A transcript segment or VLM caption is attached when its time range overlaps
+  the window (`record.start_time < chunk.end_time and record.end_time >
+  chunk.start_time`). An OCR record or frame is attached when its `timestamp`
+  falls in `[chunk.start_time, chunk.end_time)`; the final chunk also includes
+  records sitting exactly at `duration_seconds`.
+- Text fields are joined from the matched records (`transcript_text`,
+  `ocr_text`, `vlm_caption`) and `frame_paths` lists the matched frames. Missing
+  optional inputs simply yield empty text fields / an empty `frame_paths`; only
+  metadata and the transcript are required. No values are hallucinated.
+
+This is **custom timestamp alignment across modalities, not LangChain or
+generic text-splitter chunking** — the point of the stage is to line up
+transcript, OCR, captions, and frames on the same fixed time grid. It does not
+build searchable text, embed, store vectors, retrieve, rerank, answer
+questions, or evaluate. Stage 10 turns these chunks into searchable text.
+
+CLI:
+
+```bash
+python -m video_rag.index.build_chunks \
+  --video-id lecture_001 \
+  --chunk-seconds 30
+```
+
+Optional flags: `--data-dir` (default `data`), `--overlap-seconds` (default
+`0`), `--overwrite` (replaces only the target chunk file).
+
 ## Future modules
 
 Each module adds its own schema in `video_rag/schemas.py` (or a sibling
 module) when it lands. Anticipated additions — **not implemented yet** —
 include:
 
-- `Chunk`, `Embedding`, retrieval results, answer payloads.
+- `Embedding`, retrieval results, answer payloads.
 
 Each module owner defines the contract for their stage. Don't pre-spec them
 here.
@@ -380,8 +455,8 @@ here.
 
 The artifact folder layout is documented in [`../data/README.md`](../data/README.md).
 Implemented stages write to `data/videos/`, `data/manifests/`, `data/audio/`,
-`data/transcripts/`, `data/frames/`, `data/ocr/`, `data/captions/`, and
-`data/validation/`; other folders are placeholders.
+`data/transcripts/`, `data/frames/`, `data/ocr/`, `data/captions/`,
+`data/chunks/`, and `data/validation/`; other folders are placeholders.
 
 ## Validating artifacts
 
