@@ -40,6 +40,28 @@ def stage_calls(monkeypatch):
     monkeypatch.setattr(
         run_pipeline_module, "caption_frames", make_stub("caption_frames", return_value=[])
     )
+    monkeypatch.setattr(
+        run_pipeline_module, "build_chunks", make_stub("build_chunks", return_value=[])
+    )
+    monkeypatch.setattr(
+        run_pipeline_module,
+        "build_search_text",
+        make_stub("build_search_text", return_value=[]),
+    )
+    monkeypatch.setattr(
+        run_pipeline_module, "embed_chunks", make_stub("embed_chunks", return_value=[])
+    )
+    monkeypatch.setattr(
+        run_pipeline_module, "store_vectors", make_stub("store_vectors")
+    )
+    monkeypatch.setattr(
+        run_pipeline_module,
+        "validate_index",
+        make_stub(
+            "validate_index",
+            return_value=SimpleNamespace(status="passed", errors=[], warnings=[]),
+        ),
+    )
     return calls
 
 
@@ -62,6 +84,11 @@ def test_video_path_mode_runs_register_first(stage_calls, tmp_path: Path):
         "sample_frames",
         "run_ocr",
         "caption_frames",
+        "build_chunks",
+        "build_search_text",
+        "embed_chunks",
+        "store_vectors",
+        "validate_index",
     ]
 
 
@@ -83,6 +110,11 @@ def test_video_id_mode_skips_register(stage_calls, tmp_path: Path):
         "sample_frames",
         "run_ocr",
         "caption_frames",
+        "build_chunks",
+        "build_search_text",
+        "embed_chunks",
+        "store_vectors",
+        "validate_index",
     ]
 
 
@@ -131,6 +163,8 @@ def test_every_stage_receives_overwrite_true(stage_calls, tmp_path: Path):
     run_pipeline(video_id="lec", data_dir=data)
 
     for name, payload in stage_calls:
+        if name == "validate_index":
+            continue
         assert payload["kwargs"].get("overwrite") is True, f"{name} missing overwrite=True"
 
 
@@ -147,6 +181,12 @@ def test_knobs_forwarded_to_correct_stages(stage_calls, tmp_path: Path):
         language="en",
         interval_seconds=7,
         frames_per_caption=4,
+        chunk_seconds=20,
+        embedding_provider="mock",
+        embedding_model="fake-model",
+        embedding_variant="transcript_only",
+        embedding_batch_size=8,
+        vector_backend="chroma",
     )
 
     by_name = {name: payload["kwargs"] for name, payload in stage_calls}
@@ -154,6 +194,73 @@ def test_knobs_forwarded_to_correct_stages(stage_calls, tmp_path: Path):
     assert by_name["transcribe_audio"]["language"] == "en"
     assert by_name["sample_frames"]["interval_seconds"] == 7
     assert by_name["caption_frames"]["frames_per_caption"] == 4
+    assert by_name["build_chunks"]["chunk_seconds"] == 20
+    assert by_name["build_search_text"]["chunk_seconds"] == 20
+    assert by_name["embed_chunks"]["chunk_seconds"] == 20
+    assert by_name["embed_chunks"]["provider"] == "mock"
+    assert by_name["embed_chunks"]["model"] == "fake-model"
+    assert by_name["embed_chunks"]["variant"] == "transcript_only"
+    assert by_name["embed_chunks"]["batch_size"] == 8
+    assert by_name["store_vectors"]["backend"] == "chroma"
+    assert by_name["store_vectors"]["variant"] == "transcript_only"
+    assert by_name["validate_index"]["variant"] == "transcript_only"
+
+
+def test_optional_visual_and_validation_stages_can_be_skipped(stage_calls, tmp_path: Path):
+    data = tmp_path / "data"
+    manifest = data / "manifests" / "lec" / "video_manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+
+    run_pipeline(
+        video_id="lec",
+        data_dir=data,
+        skip_ocr=True,
+        skip_captions=True,
+        skip_vector_store=True,
+        skip_validation=True,
+    )
+
+    names = [name for name, _ in stage_calls]
+    assert "run_ocr" not in names
+    assert "caption_frames" not in names
+    assert "store_vectors" not in names
+    assert "validate_index" not in names
+    assert "build_chunks" in names
+    assert "build_search_text" in names
+    assert "embed_chunks" in names
+
+
+def test_nonzero_overlap_rejected_until_downstream_filenames_support_it(
+    stage_calls, tmp_path: Path
+):
+    data = tmp_path / "data"
+    manifest = data / "manifests" / "lec" / "video_manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+
+    with pytest.raises(ValueError, match="overlap_seconds=0"):
+        run_pipeline(video_id="lec", data_dir=data, overlap_seconds=5)
+
+    assert stage_calls == []
+
+
+def test_failed_index_validation_aborts_with_runtime_error(stage_calls, monkeypatch, tmp_path: Path):
+    data = tmp_path / "data"
+    manifest = data / "manifests" / "lec" / "video_manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}")
+
+    monkeypatch.setattr(
+        run_pipeline_module,
+        "validate_index",
+        lambda *a, **k: SimpleNamespace(
+            status="failed", errors=["missing vectors"], warnings=[]
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="index validation failed"):
+        run_pipeline(video_id="lec", data_dir=data)
 
 
 # --- fail-fast --------------------------------------------------------------
@@ -184,6 +291,11 @@ def test_stage_failure_aborts_remaining_stages(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(run_pipeline_module, "sample_frames", record("sample_frames"))
     monkeypatch.setattr(run_pipeline_module, "run_ocr", record("run_ocr"))
     monkeypatch.setattr(run_pipeline_module, "caption_frames", record("caption_frames"))
+    monkeypatch.setattr(run_pipeline_module, "build_chunks", record("build_chunks"))
+    monkeypatch.setattr(run_pipeline_module, "build_search_text", record("build_search_text"))
+    monkeypatch.setattr(run_pipeline_module, "embed_chunks", record("embed_chunks"))
+    monkeypatch.setattr(run_pipeline_module, "store_vectors", record("store_vectors"))
+    monkeypatch.setattr(run_pipeline_module, "validate_index", record("validate_index"))
 
     fake_video = tmp_path / "input.mp4"
     fake_video.write_bytes(b"")
@@ -213,12 +325,20 @@ def test_cli_video_id_mode(stage_calls, tmp_path: Path):
             "mock",
             "--interval-seconds",
             "10",
+            "--embedding-provider",
+            "mock",
+            "--embedding-variant",
+            "transcript_only",
+            "--skip-vector-store",
+            "--skip-validation",
         ]
     )
     assert rc == 0
     by_name = {name: payload["kwargs"] for name, payload in stage_calls}
     assert by_name["transcribe_audio"]["provider"] == "mock"
     assert by_name["sample_frames"]["interval_seconds"] == 10
+    assert by_name["embed_chunks"]["provider"] == "mock"
+    assert by_name["embed_chunks"]["variant"] == "transcript_only"
 
 
 def test_cli_requires_video_or_video_id(stage_calls):
